@@ -101,10 +101,11 @@ Total time is hardware-dependent and can take many hours. The Electrum port is n
 
 ## Network Access and Interfaces
 
-| Interface    | Port  | Protocol                | Purpose                          |
-| ------------ | ----- | ----------------------- | -------------------------------- |
-| Electrum     | 50001 | TCP (Electrum protocol) | Wallet connections (unencrypted) |
-| Electrum SSL | 50002 | TCP+SSL                 | Wallet connections (encrypted)   |
+| Interface | Internal Port | External Port | Protocol | Purpose |
+| --------- | ------------- | ------------- | -------- | ------- |
+| Main      | 50001         | 50002         | TCP+SSL (Electrum protocol) | Wallet connections |
+
+The interface is SSL-only: electrs itself listens unencrypted on 50001 inside the container, and StartOS terminates TLS at the platform edge on 50002 (`addSsl` on the bind, `secure: null`). No plain-TCP port is exposed externally — this is deliberate (Electrum traffic carries address queries; all major wallets support `ssl://`), and it matches the Fulcrum package.
 
 **Access methods (StartOS 0.4.0):**
 
@@ -250,8 +251,8 @@ architectures: [x86_64, aarch64]
 volumes:
   main: /data
 ports:
-  electrum: 50001
-  electrum_ssl: 50002
+  electrum_internal: 50001 (not exposed externally)
+  electrum_ssl: 50002 (StartOS-terminated TLS; the only external port)
 dependencies:
   - bitcoind (required)
 fixed_config:
