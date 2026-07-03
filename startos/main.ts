@@ -1,9 +1,10 @@
 import { FileHelper } from '@start9labs/start-sdk'
 import { manifest } from 'bitcoin-core-startos/startos/manifest'
+import { tomlFile } from './fileModels/electrs.toml'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
-import { port } from './utils'
+import { bitcoindBridge, port } from './utils'
 
 export const main = sdk.setupMain(async ({ effects }) => {
   /**
@@ -14,7 +15,16 @@ export const main = sdk.setupMain(async ({ effects }) => {
   let syncNotified =
     (await storeJson.read((s) => s.syncNotified).once()) ?? false
 
-  const electrsContainer = await sdk.SubContainer.of(
+  // bitcoind's RPC + P2P over the LXC bridge, written into electrs.toml before
+  // the daemon reads it (replaces the deprecated bitcoind.startos:8332/8333).
+  // main re-fires and restarts electrs if bitcoind's bridge address changes.
+  const bitcoind = await bitcoindBridge(effects)
+  await tomlFile.merge(effects, {
+    ...(bitcoind.rpc && { daemon_rpc_addr: bitcoind.rpc }),
+    ...(bitcoind.p2p && { daemon_p2p_addr: bitcoind.p2p }),
+  })
+
+  const electrsContainer = sdk.SubContainer.of(
     effects,
     { imageId: 'electrs' },
     sdk.Mounts.of()
@@ -35,7 +45,8 @@ export const main = sdk.setupMain(async ({ effects }) => {
   )
 
   // Restart if Bitcoin .cookie changes
-  await FileHelper.string(`${electrsContainer.rootfs}/mnt/bitcoind/.cookie`)
+  const rootfs = await electrsContainer.rootfs
+  await FileHelper.string(`${rootfs}/mnt/bitcoind/.cookie`)
     .read()
     .const(effects)
 

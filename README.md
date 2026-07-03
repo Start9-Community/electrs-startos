@@ -65,7 +65,7 @@
 | Configuration      | CLI arguments or config file                    | Configure action in StartOS UI |
 | Initial sync       | ~6.5 hours for full blockchain                  | Same (depends on hardware)     |
 
-**Key difference:** On StartOS, the Bitcoin connection is fully automatic — Electrs connects to `bitcoind.startos:8332` for RPC and `bitcoind.startos:8333` for P2P, using cookie authentication from the mounted dependency volume.
+**Key difference:** On StartOS, the Bitcoin connection is fully automatic — Electrs reaches bitcoind's RPC and P2P ports over the internal LXC bridge (the addresses are resolved from the `bitcoind` dependency at runtime and written into `electrs.toml`), using cookie authentication from the mounted dependency volume.
 
 **First run:** Electrs waits for Bitcoin to finish its initial block download before it starts building its own address index. Expect two stages on the StartOS status card:
 
@@ -81,8 +81,8 @@ Total time is hardware-dependent and can take many hours. The Electrum port is n
 | Setting              | Upstream Method | StartOS Method                         |
 | -------------------- | --------------- | -------------------------------------- |
 | `cookie_file`        | Config/CLI      | Fixed: `/mnt/bitcoind/.cookie`         |
-| `daemon_rpc_addr`    | Config/CLI      | Fixed: `bitcoind.startos:8332`         |
-| `daemon_p2p_addr`    | Config/CLI      | Fixed: `bitcoind.startos:8333`         |
+| `daemon_rpc_addr`    | Config/CLI      | Auto: bitcoind RPC over the LXC bridge |
+| `daemon_p2p_addr`    | Config/CLI      | Auto: bitcoind P2P over the LXC bridge |
 | `network`            | Config/CLI      | Fixed: `bitcoin`                       |
 | `electrum_rpc_addr`  | Config/CLI      | Fixed: `0.0.0.0:50001`                 |
 | `log_filters`        | Config/CLI      | Configure action: "Log Level"          |
@@ -154,8 +154,8 @@ The `sync-progress` health check surfaces Bitcoin's initial block download state
 
 The service automatically:
 
-- Connects to Bitcoin RPC at `bitcoind.startos:8332`
-- Connects to Bitcoin P2P at `bitcoind.startos:8333`
+- Connects to Bitcoin RPC over the internal LXC bridge (resolved from the `bitcoind` dependency)
+- Connects to Bitcoin P2P over the internal LXC bridge (resolved from the `bitcoind` dependency)
 - Uses cookie authentication from the mounted dependency volume
 - Restarts if the Bitcoin cookie file changes
 
@@ -257,10 +257,11 @@ dependencies:
   - bitcoind (required)
 fixed_config:
   cookie_file: /mnt/bitcoind/.cookie
-  daemon_rpc_addr: bitcoind.startos:8332
-  daemon_p2p_addr: bitcoind.startos:8333
   network: bitcoin
   electrum_rpc_addr: 0.0.0.0:50001
+runtime_config:
+  daemon_rpc_addr: <bitcoind RPC over the LXC bridge>
+  daemon_p2p_addr: <bitcoind P2P over the LXC bridge>
 startos_managed_config:
   - log_filters
   - index_batch_size
