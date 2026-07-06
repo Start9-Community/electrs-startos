@@ -1,14 +1,18 @@
-import { T, utils } from '@start9labs/start-sdk'
+import { T } from '@start9labs/start-sdk'
 import {
   peerHostId as btcPeerHostId,
-  peerInterfaceId as btcPeerInterfaceId,
+  peerPortInternal as btcPeerPortInternal,
   rpcHostId as btcRpcHostId,
-  rpcInterfaceId as btcRpcInterfaceId,
+  rpcPort as btcRpcPort,
 } from 'bitcoin-core-startos/startos/utils'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
 
 export const port = 50001
+
+// Host id electrs binds its Electrum interface on. Exported so dependents
+// (mempool/specter/canary) resolve electrs over the bridge without a literal.
+export const electrumHostId = 'electrum'
 
 export const logFilters = {
   ERROR: i18n('Error'),
@@ -21,52 +25,79 @@ export const logFilters = {
 export type LogFilters = keyof typeof logFilters
 
 /**
- * The IPv4 LXC-bridge `host:port` for an interface on an already-resolved
- * `FilledHost`. Pure — call it INSIDE a `sdk.host` map fn so `.const()` narrows
- * its reactivity to just this address. `.startos` / direct container IPs are
- * deprecated; containers reach each other over this bridge. `ssl` narrows to the
- * http vs https variant when an interface exposes both.
+ * Bridge address (`10.0.3.1:<assigned external port>`) of a dependency's
+ * binding, as a minimal reactive value. Chain `.const()` in main: the mapped
+ * string only changes when the address itself does, so main restarts exactly
+ * on dependency install/uninstall/port-change and never on dependency
+ * updates. Chain `.once()` in an action context. `fallbackPort` keeps the
+ * value non-null while the dependency is absent — sanctioned only for tor's
+ * allocator-guaranteed SOCKS 9050. Drop-in for the planned SDK
+ * `sdk.host.getBridgeAddress` helper.
  */
-const bridgeAddr = (
-  host: utils.FilledHost | null,
-  interfaceId: string,
-  ssl?: boolean,
-) => {
-  const iface =
-    host &&
-    Object.values(host.bindings)
-      .flatMap((b) => Object.values(b.interfaces))
-      .find((i) => i.id === interfaceId)
-  const h =
-    iface &&
-    iface.addressInfo
-      .filter({
-        kind: 'bridge',
-        predicate: (hn) =>
-          hn.metadata.kind === 'ipv4' && (ssl === undefined || hn.ssl === ssl),
-      })
-      .hostnames[0]
-  return h && h.port != null ? `${h.hostname}:${h.port}` : undefined
+export function bridgeAddress(
+  effects: T.Effects,
+  opts: {
+    packageId: string
+    hostId: string
+    internalPort: number
+    fallbackPort: number
+  },
+): { const(): Promise<string>; once(): Promise<string> }
+export function bridgeAddress(
+  effects: T.Effects,
+  opts: { packageId: string; hostId: string; internalPort: number },
+): { const(): Promise<string | null>; once(): Promise<string | null> }
+export function bridgeAddress(
+  effects: T.Effects,
+  opts: {
+    packageId: string
+    hostId: string
+    internalPort: number
+    fallbackPort?: number
+  },
+) {
+  const watchable = async () => {
+    const osIp = await sdk.getOsIp(effects)
+    return sdk.host.get(
+      effects,
+      { packageId: opts.packageId, hostId: opts.hostId },
+      (host) => {
+        const port =
+          host?.bindings[opts.internalPort]?.net.assignedPort ??
+          opts.fallbackPort
+        return port != null ? `${osIp}:${port}` : null
+      },
+    )
+  }
+  return {
+    const: async () => (await watchable()).const(),
+    once: async () => (await watchable()).once(),
+  }
 }
 
 /**
  * bitcoind's RPC and P2P endpoints over the LXC bridge, for electrs.toml's
- * `daemon_rpc_addr` / `daemon_p2p_addr` (replaces the deprecated
- * `bitcoind.startos:8332` / `bitcoind.startos:8333`). One subscription per
- * bitcoind host, each returning only its resolved address so the caller re-runs
- * just when a value it uses changes. Either field is `undefined` until the
- * dependency's interface is available.
+ * `daemon_rpc_addr` / `daemon_p2p_addr`. Two reactive bridge-address watches —
+ * one per bitcoind host — each chained `.const()`, so main restarts only when
+ * that address actually changes: a bitcoind update is 0 restarts, bitcoind
+ * installed after electrs is one healing restart, and uninstall is one restart
+ * back to the placeholder. While bitcoind is absent each resolves null and we
+ * fall back to a dead loopback address (matching the toml catch defaults) that
+ * just fails to connect until the `.const()` heals.
  */
 export const bitcoindBridge = async (effects: T.Effects) => {
-  const rpc = await sdk.host
-    .get(effects, { hostId: btcRpcHostId, packageId: 'bitcoind' }, (host) =>
-      bridgeAddr(host, btcRpcInterfaceId, false),
-    )
-    .const()
-  const p2p = await sdk.host
-    .get(effects, { hostId: btcPeerHostId, packageId: 'bitcoind' }, (host) =>
-      bridgeAddr(host, btcPeerInterfaceId),
-    )
-    .const()
-  return { rpc, p2p }
+  const rpc = await bridgeAddress(effects, {
+    packageId: 'bitcoind',
+    hostId: btcRpcHostId,
+    internalPort: btcRpcPort,
+  }).const()
+  const p2p = await bridgeAddress(effects, {
+    packageId: 'bitcoind',
+    hostId: btcPeerHostId,
+    internalPort: btcPeerPortInternal,
+  }).const()
+  return {
+    rpc: rpc ?? '127.0.0.1:8332',
+    p2p: p2p ?? '127.0.0.1:8333',
+  }
 }

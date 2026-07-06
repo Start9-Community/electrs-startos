@@ -6,11 +6,16 @@ import { LogFilters } from '../utils'
 export const current = VersionInfo.of({
   version: '0.11.1:9',
   releaseNotes: {
-    en_US: 'Internal updates (start-sdk 2.0.x)',
-    es_ES: 'Actualizaciones internas (start-sdk 2.0.x)',
-    de_DE: 'Interne Aktualisierungen (start-sdk 2.0.x)',
-    pl_PL: 'Aktualizacje wewnętrzne (start-sdk 2.0.x)',
-    fr_FR: 'Mises à jour internes (start-sdk 2.0.x)',
+    en_US:
+      'Internal updates (start-sdk 2.0.x). Electrs now reaches Bitcoin Core over the internal network bridge and no longer restarts when Bitcoin Core is updated.',
+    es_ES:
+      'Actualizaciones internas (start-sdk 2.0.x). Electrs ahora accede a Bitcoin Core a través del puente de red interno y ya no se reinicia cuando Bitcoin Core se actualiza.',
+    de_DE:
+      'Interne Aktualisierungen (start-sdk 2.0.x). Electrs erreicht Bitcoin Core jetzt über die interne Netzwerk-Bridge und startet nicht mehr neu, wenn Bitcoin Core aktualisiert wird.',
+    pl_PL:
+      'Aktualizacje wewnętrzne (start-sdk 2.0.x). Electrs łączy się teraz z Bitcoin Core przez wewnętrzny mostek sieciowy i nie uruchamia się ponownie, gdy Bitcoin Core jest aktualizowany.',
+    fr_FR:
+      'Mises à jour internes (start-sdk 2.0.x). Electrs atteint désormais Bitcoin Core via le pont réseau interne et ne redémarre plus lorsque Bitcoin Core est mis à jour.',
   },
   migrations: {
     up: async ({ effects }) => {
@@ -27,10 +32,10 @@ export const current = VersionInfo.of({
       ).then(YAML.parse, () => undefined)
 
       if (configYaml) {
-        await tomlFile.write(effects, {
+        // daemon_rpc_addr/daemon_p2p_addr are owned by main.ts (resolved bridge
+        // addresses); omit them here so no placeholder/legacy name is persisted.
+        await tomlFile.merge(effects, {
           cookie_file: '/mnt/bitcoind/.cookie',
-          daemon_rpc_addr: 'bitcoind.startos:8332',
-          daemon_p2p_addr: 'bitcoind.startos:8333',
           electrum_rpc_addr: '0.0.0.0:50001',
           network: 'bitcoin',
           log_filters: configYaml['log-filters'],

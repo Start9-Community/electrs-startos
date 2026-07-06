@@ -16,12 +16,15 @@ export const main = sdk.setupMain(async ({ effects }) => {
     (await storeJson.read((s) => s.syncNotified).once()) ?? false
 
   // bitcoind's RPC + P2P over the LXC bridge, written into electrs.toml before
-  // the daemon reads it (replaces the deprecated bitcoind.startos:8332/8333).
-  // main re-fires and restarts electrs if bitcoind's bridge address changes.
+  // the daemon reads it. Resolved reactively (see bitcoindBridge): the mapped
+  // address changes only on bitcoind install / uninstall / port-change, so main
+  // re-fires and restarts electrs to heal on those — and never on a plain
+  // bitcoind update. While bitcoind is absent each falls back to a dead loopback
+  // placeholder that just fails to connect until the .const() heals.
   const bitcoind = await bitcoindBridge(effects)
   await tomlFile.merge(effects, {
-    ...(bitcoind.rpc && { daemon_rpc_addr: bitcoind.rpc }),
-    ...(bitcoind.p2p && { daemon_p2p_addr: bitcoind.p2p }),
+    daemon_rpc_addr: bitcoind.rpc,
+    daemon_p2p_addr: bitcoind.p2p,
   })
 
   const electrsContainer = sdk.SubContainer.of(

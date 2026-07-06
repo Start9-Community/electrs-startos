@@ -1,9 +1,9 @@
 import { i18n } from './i18n'
 import { sdk } from './sdk'
-import { port } from './utils'
+import { electrumHostId, port } from './utils'
 
 export const setInterfaces = sdk.setupInterfaces(async ({ effects }) => {
-  const multihost = sdk.MultiHost.of(effects, 'electrum')
+  const multihost = sdk.MultiHost.of(effects, electrumHostId)
   // SSL-only by design: with secure: null the OS exposes just the TLS port
   // (50002) on regular LAN gateways. Electrum traffic carries address queries,
   // all major wallets support ssl://, and this matches the Fulcrum package.
