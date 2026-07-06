@@ -7,15 +7,15 @@ export const current = VersionInfo.of({
   version: '0.11.1:9',
   releaseNotes: {
     en_US:
-      'Internal updates (start-sdk 2.0.x). Electrs now reaches Bitcoin Core over the internal network bridge and no longer restarts when Bitcoin Core is updated.',
+      'Internal updates (start-sdk 2.0.x). Electrs now reaches Bitcoin over the internal network bridge and no longer restarts when Bitcoin is updated.',
     es_ES:
-      'Actualizaciones internas (start-sdk 2.0.x). Electrs ahora accede a Bitcoin Core a través del puente de red interno y ya no se reinicia cuando Bitcoin Core se actualiza.',
+      'Actualizaciones internas (start-sdk 2.0.x). Electrs ahora accede a Bitcoin a través del puente de red interno y ya no se reinicia cuando Bitcoin se actualiza.',
     de_DE:
-      'Interne Aktualisierungen (start-sdk 2.0.x). Electrs erreicht Bitcoin Core jetzt über die interne Netzwerk-Bridge und startet nicht mehr neu, wenn Bitcoin Core aktualisiert wird.',
+      'Interne Aktualisierungen (start-sdk 2.0.x). Electrs erreicht Bitcoin jetzt über die interne Netzwerk-Bridge und startet nicht mehr neu, wenn Bitcoin aktualisiert wird.',
     pl_PL:
-      'Aktualizacje wewnętrzne (start-sdk 2.0.x). Electrs łączy się teraz z Bitcoin Core przez wewnętrzny mostek sieciowy i nie uruchamia się ponownie, gdy Bitcoin Core jest aktualizowany.',
+      'Aktualizacje wewnętrzne (start-sdk 2.0.x). Electrs łączy się teraz z Bitcoin przez wewnętrzny mostek sieciowy i nie uruchamia się ponownie, gdy Bitcoin jest aktualizowany.',
     fr_FR:
-      'Mises à jour internes (start-sdk 2.0.x). Electrs atteint désormais Bitcoin Core via le pont réseau interne et ne redémarre plus lorsque Bitcoin Core est mis à jour.',
+      'Mises à jour internes (start-sdk 2.0.x). Electrs atteint désormais Bitcoin via le pont réseau interne et ne redémarre plus lorsque Bitcoin est mis à jour.',
   },
   migrations: {
     up: async ({ effects }) => {

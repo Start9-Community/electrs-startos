@@ -19,12 +19,12 @@ export const main = sdk.setupMain(async ({ effects }) => {
   // the daemon reads it. Resolved reactively (see bitcoindBridge): the mapped
   // address changes only on bitcoind install / uninstall / port-change, so main
   // re-fires and restarts electrs to heal on those — and never on a plain
-  // bitcoind update. While bitcoind is absent each falls back to a dead loopback
-  // placeholder that just fails to connect until the .const() heals.
+  // bitcoind update. While bitcoind is absent each resolves null and we omit the
+  // field, letting electrs fail to connect until the .const() heals it in.
   const bitcoind = await bitcoindBridge(effects)
   await tomlFile.merge(effects, {
-    daemon_rpc_addr: bitcoind.rpc,
-    daemon_p2p_addr: bitcoind.p2p,
+    ...(bitcoind.rpc && { daemon_rpc_addr: bitcoind.rpc }),
+    ...(bitcoind.p2p && { daemon_p2p_addr: bitcoind.p2p }),
   })
 
   const electrsContainer = sdk.SubContainer.of(

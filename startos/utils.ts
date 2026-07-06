@@ -65,7 +65,8 @@ export function bridgeAddress(
         const port =
           host?.bindings[opts.internalPort]?.net.assignedPort ??
           opts.fallbackPort
-        return port != null ? `${osIp}:${port}` : null
+        if (port == null) return null
+        return `${osIp}:${port}`
       },
     )
   }
@@ -80,10 +81,10 @@ export function bridgeAddress(
  * `daemon_rpc_addr` / `daemon_p2p_addr`. Two reactive bridge-address watches —
  * one per bitcoind host — each chained `.const()`, so main restarts only when
  * that address actually changes: a bitcoind update is 0 restarts, bitcoind
- * installed after electrs is one healing restart, and uninstall is one restart
- * back to the placeholder. While bitcoind is absent each resolves null and we
- * fall back to a dead loopback address (matching the toml catch defaults) that
- * just fails to connect until the `.const()` heals.
+ * installed after electrs is one healing restart, and uninstall is one restart.
+ * Each resolves null while bitcoind is absent; the caller omits the toml field
+ * rather than writing a placeholder, so the `.const()` heals in the real
+ * address once bitcoind appears.
  */
 export const bitcoindBridge = async (effects: T.Effects) => {
   const rpc = await bridgeAddress(effects, {
@@ -96,8 +97,5 @@ export const bitcoindBridge = async (effects: T.Effects) => {
     hostId: btcPeerHostId,
     internalPort: btcPeerPortInternal,
   }).const()
-  return {
-    rpc: rpc ?? '127.0.0.1:8332',
-    p2p: p2p ?? '127.0.0.1:8333',
-  }
+  return { rpc, p2p }
 }

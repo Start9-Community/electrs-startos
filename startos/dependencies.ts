@@ -6,7 +6,10 @@ export const setDependencies = sdk.setupDependencies(async ({ effects }) => {
   await sdk.action.createTask(effects, 'bitcoind', autoconfig, 'critical', {
     input: {
       kind: 'partial',
-      accept: [{ prune: 0 }],
+      // A default (unpruned) bitcoind omits `prune`; per start-core
+      // is_partial_of a null accept entry matches that missing key, so accept
+      // both forms. null isn't in the number-typed DeepPartial, hence the cast.
+      accept: [{ prune: 0 }, { prune: null as unknown as number }],
       set: { prune: 0 },
     },
     when: { condition: 'input-not-matches', once: false },
