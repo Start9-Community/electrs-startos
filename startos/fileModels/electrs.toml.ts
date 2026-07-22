@@ -2,17 +2,17 @@ import { FileHelper, z } from '@start9labs/start-sdk'
 import { sdk } from '../sdk'
 
 export const shape = z.object({
-  cookie_file: z.literal('/mnt/bitcoind/.cookie').catch('/mnt/bitcoind/.cookie'),
-  daemon_rpc_addr: z
-    .literal('bitcoind.startos:8332')
-    .catch('bitcoind.startos:8332'),
-  daemon_p2p_addr: z
-    .literal('bitcoind.startos:8333')
-    .catch('bitcoind.startos:8333'),
+  cookie_file: z
+    .literal('/mnt/bitcoind/.cookie')
+    .catch('/mnt/bitcoind/.cookie'),
+  // Dynamic: main.ts writes bitcoind's LXC-bridge host:port at startup (see
+  // bitcoindBridge in utils.ts). Optional and absent while bitcoind is
+  // unresolved — main omits the field rather than writing a placeholder, and
+  // the reactive .const() write lands the real address once bitcoind appears.
+  daemon_rpc_addr: z.string().optional().catch(undefined),
+  daemon_p2p_addr: z.string().optional().catch(undefined),
   network: z.literal('bitcoin').catch('bitcoin'),
-  electrum_rpc_addr: z
-    .literal('0.0.0.0:50001')
-    .catch('0.0.0.0:50001'),
+  electrum_rpc_addr: z.literal('0.0.0.0:50001').catch('0.0.0.0:50001'),
   log_filters: z
     .enum(['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'])
     .catch('INFO'),

@@ -1,9 +1,10 @@
 import { FileHelper } from '@start9labs/start-sdk'
 import { manifest } from 'bitcoin-core-startos/startos/manifest'
+import { tomlFile } from './fileModels/electrs.toml'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
-import { port } from './utils'
+import { bitcoindBridge, port } from './utils'
 
 export const main = sdk.setupMain(async ({ effects }) => {
   /**
@@ -14,7 +15,19 @@ export const main = sdk.setupMain(async ({ effects }) => {
   let syncNotified =
     (await storeJson.read((s) => s.syncNotified).once()) ?? false
 
-  const electrsContainer = await sdk.SubContainer.of(
+  // bitcoind's RPC + P2P over the LXC bridge, written into electrs.toml before
+  // the daemon reads it. Resolved reactively (see bitcoindBridge): the mapped
+  // address changes only on bitcoind install / uninstall / port-change, so main
+  // re-fires and restarts electrs to heal on those — and never on a plain
+  // bitcoind update. While bitcoind is absent each resolves null and we omit the
+  // field, letting electrs fail to connect until the .const() heals it in.
+  const bitcoind = await bitcoindBridge(effects)
+  await tomlFile.merge(effects, {
+    ...(bitcoind.rpc && { daemon_rpc_addr: bitcoind.rpc }),
+    ...(bitcoind.p2p && { daemon_p2p_addr: bitcoind.p2p }),
+  })
+
+  const electrsContainer = sdk.SubContainer.of(
     effects,
     { imageId: 'electrs' },
     sdk.Mounts.of()
@@ -35,7 +48,8 @@ export const main = sdk.setupMain(async ({ effects }) => {
   )
 
   // Restart if Bitcoin .cookie changes
-  await FileHelper.string(`${electrsContainer.rootfs}/mnt/bitcoind/.cookie`)
+  const rootfs = await electrsContainer.rootfs
+  await FileHelper.string(`${rootfs}/mnt/bitcoind/.cookie`)
     .read()
     .const(effects)
 
