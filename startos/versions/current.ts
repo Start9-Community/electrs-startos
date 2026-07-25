@@ -1,23 +1,23 @@
 import { VersionInfo } from '@start9labs/start-sdk'
 
 export const current = VersionInfo.of({
-  version: '0.11.1:14',
+  version: '0.11.1:15',
   releaseNotes: {
-    en_US: `Fixes a crash loop when a wallet app queries Electrs heavily.
+    en_US: `Stops Electrs reloading at the moment Bitcoin Core goes away.
 
-Electrs downloads whole blocks from Bitcoin Core to answer address history queries. It was doing that over the same connection anonymous peers from the internet use, so Bitcoin Core could drop it mid-query — and Electrs shuts down when its Bitcoin connection dies. With a busy client attached, such as Canary, it could be restarted every minute. Electrs now uses a dedicated local connection that Bitcoin Core trusts. This requires Bitcoin Core or Bitcoin Knots to be updated first; StartOS will prompt you.`,
-    es_ES: `Corrige un ciclo de fallos cuando una aplicación de cartera consulta intensamente a Electrs.
+Electrs reloads when Bitcoin Core issues new RPC credentials, which it does on every restart. That reload was previously triggered as soon as Bitcoin Core *began* shutting down — while its RPC was already unreachable — so Electrs was restarted against a backend that was not there yet, and Electrs exits when it cannot reach Bitcoin. It now reloads only once Bitcoin Core is back up and has published new credentials.`,
+    es_ES: `Evita que Electrs se recargue justo cuando Bitcoin Core desaparece.
 
-Electrs descarga bloques enteros de Bitcoin Core para responder a las consultas de historial de direcciones. Lo hacía por la misma conexión que usan los pares anónimos de internet, así que Bitcoin Core podía cortarla a mitad de consulta — y Electrs se apaga cuando su conexión con Bitcoin muere. Con un cliente intensivo conectado, como Canary, podía reiniciarse cada minuto. Ahora Electrs usa una conexión local dedicada en la que Bitcoin Core confía. Para ello hay que actualizar antes Bitcoin Core o Bitcoin Knots; StartOS te lo pedirá.`,
-    de_DE: `Behebt eine Neustartschleife, wenn eine Wallet-App Electrs stark abfragt.
+Electrs se recarga cuando Bitcoin Core emite nuevas credenciales RPC, algo que hace en cada reinicio. Esa recarga se activaba en cuanto Bitcoin Core *empezaba* a apagarse — cuando su RPC ya era inalcanzable —, así que Electrs arrancaba contra un backend que todavía no estaba, y Electrs se cierra cuando no puede alcanzar a Bitcoin. Ahora se recarga solo cuando Bitcoin Core ha vuelto y ha publicado nuevas credenciales.`,
+    de_DE: `Verhindert, dass Electrs genau dann neu lädt, wenn Bitcoin Core verschwindet.
 
-Electrs lädt ganze Blöcke von Bitcoin Core, um Adressverlaufs-Abfragen zu beantworten. Das lief über dieselbe Verbindung, die anonyme Gegenstellen aus dem Internet nutzen, sodass Bitcoin Core sie mitten in einer Abfrage trennen konnte — und Electrs beendet sich, wenn seine Bitcoin-Verbindung abbricht. Mit einem aktiven Client wie Canary konnte es jede Minute neu starten. Electrs nutzt jetzt eine eigene lokale Verbindung, der Bitcoin Core vertraut. Dafür muss zuerst Bitcoin Core bzw. Bitcoin Knots aktualisiert werden; StartOS fordert dich dazu auf.`,
-    pl_PL: `Naprawia pętlę awarii, gdy aplikacja portfela intensywnie odpytuje Electrs.
+Electrs lädt neu, sobald Bitcoin Core neue RPC-Zugangsdaten ausgibt — was bei jedem Neustart geschieht. Dieses Neuladen wurde bisher ausgelöst, sobald Bitcoin Core mit dem Herunterfahren *begann* — während dessen RPC bereits nicht mehr erreichbar war. Electrs startete also gegen ein Backend, das noch nicht da war, und Electrs beendet sich, wenn es Bitcoin nicht erreichen kann. Es lädt jetzt erst neu, wenn Bitcoin Core wieder läuft und neue Zugangsdaten veröffentlicht hat.`,
+    pl_PL: `Zapobiega przeładowaniu Electrs dokładnie w chwili, gdy znika Bitcoin Core.
 
-Electrs pobiera całe bloki z Bitcoin Core, aby odpowiadać na zapytania o historię adresów. Robił to przez to samo połączenie, którego używają anonimowe węzły z internetu, więc Bitcoin Core mógł je zerwać w trakcie zapytania — a Electrs wyłącza się, gdy jego połączenie z Bitcoinem padnie. Przy aktywnym kliencie, takim jak Canary, mógł restartować się co minutę. Electrs korzysta teraz z dedykowanego połączenia lokalnego, któremu Bitcoin Core ufa. Wymaga to wcześniejszej aktualizacji Bitcoin Core lub Bitcoin Knots; StartOS o tym przypomni.`,
-    fr_FR: `Corrige une boucle de plantage lorsqu'une application de portefeuille sollicite fortement Electrs.
+Electrs przeładowuje się, gdy Bitcoin Core wydaje nowe dane uwierzytelniające RPC, co robi przy każdym restarcie. Dotąd to przeładowanie uruchamiało się, gdy tylko Bitcoin Core *zaczynał* się wyłączać — a jego RPC było już nieosiągalne — więc Electrs startował wobec backendu, którego jeszcze nie było, a Electrs kończy pracę, gdy nie może połączyć się z Bitcoinem. Teraz przeładowuje się dopiero wtedy, gdy Bitcoin Core wróci i opublikuje nowe dane uwierzytelniające.`,
+    fr_FR: `Empêche Electrs de se recharger au moment précis où Bitcoin Core disparaît.
 
-Electrs télécharge des blocs entiers depuis Bitcoin Core pour répondre aux requêtes d'historique d'adresse. Il le faisait via la même connexion que les pairs anonymes d'internet, si bien que Bitcoin Core pouvait la couper en pleine requête — et Electrs s'arrête quand sa connexion à Bitcoin tombe. Avec un client actif comme Canary, il pouvait redémarrer toutes les minutes. Electrs utilise désormais une connexion locale dédiée à laquelle Bitcoin Core fait confiance. Cela requiert de mettre d'abord à jour Bitcoin Core ou Bitcoin Knots ; StartOS vous y invitera.`,
+Electrs se recharge lorsque Bitcoin Core émet de nouveaux identifiants RPC, ce qu'il fait à chaque redémarrage. Ce rechargement était jusqu'ici déclenché dès que Bitcoin Core *commençait* à s'arrêter — alors que son RPC était déjà injoignable —, si bien qu'Electrs redémarrait face à un backend encore absent, et Electrs s'arrête lorsqu'il ne peut pas joindre Bitcoin. Il ne se recharge désormais qu'une fois Bitcoin Core revenu et de nouveaux identifiants publiés.`,
   },
   migrations: {},
 })
