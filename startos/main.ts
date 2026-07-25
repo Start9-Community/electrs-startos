@@ -16,7 +16,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     (await storeJson.read((s) => s.syncNotified).once()) ?? false
 
   // bitcoind's RPC + P2P over the LXC bridge, written into electrs.toml before
-  // the daemon reads it. Resolved reactively (see bitcoindBridge): the mapped
+  // the daemon reads it. Resolved reactively (see bitcoindBridge): the bridge
   // address changes only on bitcoind install / uninstall / port-change, so main
   // re-fires and restarts electrs to heal on those — and never on a plain
   // bitcoind update. While bitcoind is absent each resolves null and we omit the
