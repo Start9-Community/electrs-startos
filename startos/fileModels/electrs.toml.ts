@@ -2,6 +2,8 @@ import { FileHelper, z } from '@start9labs/start-sdk'
 import { sdk } from '../sdk'
 
 export const shape = z.object({
+  // Stripped: electrs exits if auth and cookie_file are both set
+  auth: z.undefined().catch(undefined),
   cookie_file: z
     .literal('/mnt/bitcoind/.cookie')
     .catch('/mnt/bitcoind/.cookie'),
