@@ -25,58 +25,6 @@ export const logFilters = {
 export type LogFilters = keyof typeof logFilters
 
 /**
- * Bridge address (`10.0.3.1:<assigned external port>`) of a dependency's
- * binding, as a minimal reactive value. Chain `.const()` in main: the mapped
- * string only changes when the address itself does, so main restarts exactly
- * on dependency install/uninstall/port-change and never on dependency
- * updates. Chain `.once()` in an action context. `fallbackPort` keeps the
- * value non-null while the dependency is absent — sanctioned only for tor's
- * allocator-guaranteed SOCKS 9050. Drop-in for the planned SDK
- * `sdk.host.getBridgeAddress` helper.
- */
-export function bridgeAddress(
-  effects: T.Effects,
-  opts: {
-    packageId: string
-    hostId: string
-    internalPort: number
-    fallbackPort: number
-  },
-): { const(): Promise<string>; once(): Promise<string> }
-export function bridgeAddress(
-  effects: T.Effects,
-  opts: { packageId: string; hostId: string; internalPort: number },
-): { const(): Promise<string | null>; once(): Promise<string | null> }
-export function bridgeAddress(
-  effects: T.Effects,
-  opts: {
-    packageId: string
-    hostId: string
-    internalPort: number
-    fallbackPort?: number
-  },
-) {
-  const watchable = async () => {
-    const osIp = await sdk.getOsIp(effects)
-    return sdk.host.get(
-      effects,
-      { packageId: opts.packageId, hostId: opts.hostId },
-      (host) => {
-        const port =
-          host?.bindings[opts.internalPort]?.net.assignedPort ??
-          opts.fallbackPort
-        if (port == null) return null
-        return `${osIp}:${port}`
-      },
-    )
-  }
-  return {
-    const: async () => (await watchable()).const(),
-    once: async () => (await watchable()).once(),
-  }
-}
-
-/**
  * bitcoind's RPC and P2P endpoints over the LXC bridge, for electrs.toml's
  * `daemon_rpc_addr` / `daemon_p2p_addr`. Two reactive bridge-address watches —
  * one per bitcoind host — each chained `.const()`, so main restarts only when
@@ -87,15 +35,20 @@ export function bridgeAddress(
  * address once bitcoind appears.
  */
 export const bitcoindBridge = async (effects: T.Effects) => {
-  const rpc = await bridgeAddress(effects, {
-    packageId: 'bitcoind',
-    hostId: btcRpcHostId,
-    internalPort: btcRpcPort,
-  }).const()
-  const p2p = await bridgeAddress(effects, {
-    packageId: 'bitcoind',
-    hostId: btcPeerHostId,
-    internalPort: btcPeerPortInternal,
-  }).const()
+  const rpc = await sdk.host
+    .getBridgeAddress(effects, {
+      packageId: 'bitcoind',
+      hostId: btcRpcHostId,
+      internalPort: btcRpcPort,
+      ssl: false,
+    })
+    .const()
+  const p2p = await sdk.host
+    .getBridgeAddress(effects, {
+      packageId: 'bitcoind',
+      hostId: btcPeerHostId,
+      internalPort: btcPeerPortInternal,
+    })
+    .const()
   return { rpc, p2p }
 }
