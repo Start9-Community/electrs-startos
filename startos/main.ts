@@ -47,10 +47,14 @@ export const main = sdk.setupMain(async ({ effects }) => {
     'electrs',
   )
 
-  // Restart if Bitcoin .cookie changes
+  // Restart only when bitcoind writes a replacement cookie — an absent cookie
+  // means bitcoind is down.
   const rootfs = await electrsContainer.rootfs
   await FileHelper.string(`${rootfs}/mnt/bitcoind/.cookie`)
-    .read()
+    .read(
+      (cookie) => cookie,
+      (prev, next) => next === null || prev === next,
+    )
     .const(effects)
 
   /**
