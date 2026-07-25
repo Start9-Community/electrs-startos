@@ -80,6 +80,7 @@ Total time is hardware-dependent and can take many hours. The Electrum port is n
 
 | Setting              | Upstream Method | StartOS Method                                                    |
 | -------------------- | --------------- | ----------------------------------------------------------------- |
+| `auth`               | Config/CLI      | Never set — mutually exclusive with `cookie_file`                 |
 | `cookie_file`        | Config/CLI      | Fixed: `/mnt/bitcoind/.cookie`                                    |
 | `daemon_rpc_addr`    | Config/CLI      | Auto: bitcoind RPC over the LXC bridge                            |
 | `daemon_p2p_addr`    | Config/CLI      | Auto: bitcoind whitelisted P2P (`peer-local`) over the LXC bridge |
