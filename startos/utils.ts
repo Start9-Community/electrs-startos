@@ -1,7 +1,7 @@
 import { T } from '@start9labs/start-sdk'
 import {
-  peerHostId as btcPeerHostId,
-  peerPortInternal as btcPeerPortInternal,
+  peerLocalHostId as btcPeerLocalHostId,
+  peerPortLocal as btcPeerPortLocal,
   rpcHostId as btcRpcHostId,
   rpcPort as btcRpcPort,
 } from 'bitcoin-core-startos/startos/utils'
@@ -33,6 +33,14 @@ export type LogFilters = keyof typeof logFilters
  * Each resolves null while bitcoind is absent; the caller omits the toml field
  * rather than writing a placeholder, so the `.const()` heals in the real
  * address once bitcoind appears.
+ *
+ * P2P resolves bitcoind's `peer-local` host, not `peer`. electrs fetches whole
+ * blocks over p2p — for the index, and again for every history query on a
+ * scripthash no client has subscribed to — and `peer` maps onto the plain
+ * `bind` that anonymous inbound peers share, where that traffic earns no
+ * permissions: bitcoind may evict the connection to seat another peer, or cut
+ * it off under `maxuploadtarget`. electrs does not reconnect p2p; it exits.
+ * `peer-local` is whitelisted (noban + download), so neither applies.
  */
 export const bitcoindBridge = async (effects: T.Effects) => {
   const rpc = await sdk.host
@@ -46,8 +54,8 @@ export const bitcoindBridge = async (effects: T.Effects) => {
   const p2p = await sdk.host
     .getBridgeAddress(effects, {
       packageId: 'bitcoind',
-      hostId: btcPeerHostId,
-      internalPort: btcPeerPortInternal,
+      hostId: btcPeerLocalHostId,
+      internalPort: btcPeerPortLocal,
     })
     .const()
   return { rpc, p2p }

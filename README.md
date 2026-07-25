@@ -65,7 +65,7 @@
 | Configuration      | CLI arguments or config file                    | Configure action in StartOS UI |
 | Initial sync       | ~6.5 hours for full blockchain                  | Same (depends on hardware)     |
 
-**Key difference:** On StartOS, the Bitcoin connection is fully automatic — Electrs reaches bitcoind's RPC and P2P ports over the internal LXC bridge (the addresses are resolved from the `bitcoind` dependency at runtime and written into `electrs.toml`), using cookie authentication from the mounted dependency volume.
+**Key difference:** On StartOS, the Bitcoin connection is fully automatic — Electrs reaches bitcoind's RPC and P2P ports over the internal LXC bridge (the addresses are resolved from the `bitcoind` dependency at runtime and written into `electrs.toml`), using cookie authentication from the mounted dependency volume. P2P resolves bitcoind's whitelisted `peer-local` host, so it requires a bitcoind revision that publishes it (see `startos/dependencies.ts`).
 
 **First run:** Electrs waits for Bitcoin to finish its initial block download before it starts building its own address index. Expect two stages on the StartOS status card:
 
@@ -78,16 +78,16 @@ Total time is hardware-dependent and can take many hours. The Electrum port is n
 
 ## Configuration Management
 
-| Setting              | Upstream Method | StartOS Method                         |
-| -------------------- | --------------- | -------------------------------------- |
-| `cookie_file`        | Config/CLI      | Fixed: `/mnt/bitcoind/.cookie`         |
-| `daemon_rpc_addr`    | Config/CLI      | Auto: bitcoind RPC over the LXC bridge |
-| `daemon_p2p_addr`    | Config/CLI      | Auto: bitcoind P2P over the LXC bridge |
-| `network`            | Config/CLI      | Fixed: `bitcoin`                       |
-| `electrum_rpc_addr`  | Config/CLI      | Fixed: `0.0.0.0:50001`                 |
-| `log_filters`        | Config/CLI      | Configure action: "Log Level"          |
-| `index_batch_size`   | Config/CLI      | Configure action: "Index Batch Size"   |
-| `index_lookup_limit` | Config/CLI      | Configure action: "Index Lookup Limit" |
+| Setting              | Upstream Method | StartOS Method                                                    |
+| -------------------- | --------------- | ----------------------------------------------------------------- |
+| `cookie_file`        | Config/CLI      | Fixed: `/mnt/bitcoind/.cookie`                                    |
+| `daemon_rpc_addr`    | Config/CLI      | Auto: bitcoind RPC over the LXC bridge                            |
+| `daemon_p2p_addr`    | Config/CLI      | Auto: bitcoind whitelisted P2P (`peer-local`) over the LXC bridge |
+| `network`            | Config/CLI      | Fixed: `bitcoin`                                                  |
+| `electrum_rpc_addr`  | Config/CLI      | Fixed: `0.0.0.0:50001`                                            |
+| `log_filters`        | Config/CLI      | Configure action: "Log Level"                                     |
+| `index_batch_size`   | Config/CLI      | Configure action: "Index Batch Size"                              |
+| `index_lookup_limit` | Config/CLI      | Configure action: "Index Lookup Limit"                            |
 
 **Configuration options NOT exposed on StartOS:**
 
@@ -155,7 +155,7 @@ The `sync-progress` health check surfaces Bitcoin's initial block download state
 The service automatically:
 
 - Connects to Bitcoin RPC over the internal LXC bridge (resolved from the `bitcoind` dependency)
-- Connects to Bitcoin P2P over the internal LXC bridge (resolved from the `bitcoind` dependency)
+- Connects to Bitcoin P2P over the internal LXC bridge, on bitcoind's whitelisted `peer-local` host (resolved from the `bitcoind` dependency)
 - Uses cookie authentication from the mounted dependency volume
 - Restarts if the Bitcoin cookie file changes
 
@@ -261,7 +261,7 @@ fixed_config:
   electrum_rpc_addr: 0.0.0.0:50001
 runtime_config:
   daemon_rpc_addr: <bitcoind RPC over the LXC bridge>
-  daemon_p2p_addr: <bitcoind P2P over the LXC bridge>
+  daemon_p2p_addr: <bitcoind whitelisted P2P (peer-local) over the LXC bridge>
 startos_managed_config:
   - log_filters
   - index_batch_size
