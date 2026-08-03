@@ -6,6 +6,7 @@ const dict = {
   'Electrum server is ready and accepting connections': 2,
   'Electrum server is starting': 3,
   'Electrs is building its address index. This can take several hours on first run.': 25,
+  'Electrs is not responding. It is likely busy indexing; this usually clears on its own.': 31,
   'Fully synced': 26,
   'Sync Progress': 4,
   Main: 5,

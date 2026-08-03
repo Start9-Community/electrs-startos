@@ -69,10 +69,10 @@
 
 **First run:** Electrs waits for Bitcoin to finish its initial block download before it starts building its own address index. Expect two stages on the StartOS status card:
 
-1. `waiting` — "Waiting for Bitcoin to finish syncing" while Bitcoin completes IBD
+1. `starting` — "Electrum server is starting" until Electrs binds port 50001
 2. `loading` — "Electrs is building its address index…" while Electrs builds its RocksDB index
 
-Total time is hardware-dependent and can take many hours. The Electrum port is not served until both stages are complete.
+Total time is hardware-dependent and can take many hours. Electrs binds the Electrum port before it connects to bitcoind, so the port being open is not a signal that either stage has finished — Sync Progress reaching "Fully synced" is.
 
 ---
 
@@ -190,23 +190,26 @@ The service automatically:
 
 ## Health Checks
 
-| Check           | Display         | Method                                           |
-| --------------- | --------------- | ------------------------------------------------ |
-| Electrum Server | Electrum Server | Port 50001 listening, with cookie-aware fallback |
-| Sync Progress   | Sync Progress   | Electrs's own Electrum RPC readiness signal      |
+| Check           | Display         | Method                                      |
+| --------------- | --------------- | ------------------------------------------- |
+| Electrum Server | Electrum Server | Port 50001 listening                        |
+| Sync Progress   | Sync Progress   | Electrs's own Electrum RPC readiness signal |
 
 **Electrum Server details:**
 
-The daemon is considered `success` when port 50001 is listening. When it is not yet listening, Electrs is still in its bitcoind-polling loop (electrs won't bind the port until Bitcoin is past IBD and its P2P interface is reachable). Rather than reporting `failure`, the check inspects the mounted `/mnt/bitcoind/.cookie` file and reports:
+The daemon is `success` once port 50001 is listening, and `starting` until then. `checkPortListening` reads `/proc/net/tcp*`, and Electrs binds the listener before it connects to bitcoind, so the port is already open throughout the bitcoind IBD wait — a not-listening result means Electrs has not bound the socket yet, not that it is blocked on Bitcoin. Messages:
 
-- `waiting` — "Waiting for Bitcoin to finish syncing" (cookie present → Bitcoin RPC is up)
-- `waiting` — "Waiting for Bitcoin to start" (no cookie → Bitcoin not yet running)
+- `success` — "Electrum server is ready and accepting connections"
+- `starting` — "Electrum server is starting"
 
 **Sync Progress details:**
 
-Sync progress is `loading` until Electrs has built its address index and is ready to serve Electrum queries. The check connects to Electrs's own Electrum RPC on `localhost:50001` (via `bash /dev/tcp`) and calls an index-requiring method. Electrs returns `{"code": -32603, "message": "unavailable index"}` until its internal `is_ready` flag flips, which happens only after both initial indexing AND the one-time post-indexing RocksDB compaction complete. No Bitcoin RPC or Prometheus scraping is performed. Messages:
+The check opens a TCP connection to Electrs's own Electrum RPC on `localhost:50001` (via `bash /dev/tcp`) and calls `server.banner`, treating only a real JSON-RPC `result` as synced. Confirmation must be positive: while the index is building Electrs can reply `{"code": -32603, "message": "unavailable index"}`, but far more often it does not reply at all within the 10-second read timeout, because its sync loop indexes an entire batch before servicing any RPC and only answers between batches. Reading silence as success would report "Fully synced" throughout the build. No Bitcoin RPC or Prometheus scraping is performed.
 
-- `loading` — "Electrs is building its address index. This can take several hours on first run."
+Silence is not read as an unbuilt index either. The first success is recorded in `store.json` (`everSynced`), and past it the check retries before concluding — a single blip is not a sync regression, since indexing one block, or the RocksDB compaction behind it, can block the RPC loop past the timeout on modest hardware. A built index is never rebuilt, so past that point the check never claims a rebuild. Messages:
+
+- `loading` — "Electrs is building its address index. This can take several hours on first run." (before the first success only)
+- `loading` — "Electrs is not responding. It is likely busy indexing; this usually clears on its own." (after it)
 - `success` — "Fully synced"
 
 When sync first reaches `success` after install, a **Sync Complete** notification is posted to the StartOS notifications panel (fires once per install).

@@ -16,9 +16,11 @@ Electrs needs a fully-synced Bitcoin archival node to do anything useful. Instal
 ## Getting set up
 
 1. Install **Bitcoin** first if it isn't already installed.
-2. Start Electrs. On first run it will report **Waiting for Bitcoin to start** or **Waiting for Bitcoin to finish syncing** until your Bitcoin node has completed its initial block download. This can take a long time on a fresh node.
+2. Start Electrs. On first run it will report **Electrum server is starting** until it has bound its port, and it will not begin indexing until your Bitcoin node has completed its initial block download. This can take a long time on a fresh node.
 3. Once Bitcoin is fully synced, Electrs will switch to **Electrs is building its address index** while it builds its own index. This typically takes several hours on first run.
 4. When the **Sync Progress** health check reports **Fully synced**, point your Electrum wallet at the **Main** interface (SSL, port 50002).
+
+Once that first **Fully synced** appears, the index is built and is never rebuilt. If **Sync Progress** later reports **Electrs is not responding. It is likely busy indexing; this usually clears on its own.**, that is a busy moment — Electrs answers wallet queries only between indexing batches — and it clears by itself. It does not mean the index is being rebuilt, and it is not a reason to reindex.
 
 ## Using Electrs
 
