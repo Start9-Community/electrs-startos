@@ -8,5 +8,6 @@ export const storeJson = FileHelper.json(
   },
   z.object({
     syncNotified: z.boolean().catch(false),
+    everSynced: z.boolean().catch(false),
   }),
 )

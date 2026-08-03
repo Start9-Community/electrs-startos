@@ -14,6 +14,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
 
   let syncNotified =
     (await storeJson.read((s) => s.syncNotified).once()) ?? false
+  let everSynced = (await storeJson.read((s) => s.everSynced).once()) ?? false
 
   // bitcoind's RPC + P2P over the LXC bridge, written into electrs.toml before
   // the daemon reads it. Resolved reactively (see bitcoindBridge): the bridge
@@ -115,19 +116,37 @@ IFS= read -t 10 -r line <&3 || exit 2
 exec 3<&- 2>/dev/null
 printf '%s' "$line"`
 
-          const res = await electrsContainer.exec(['bash', '-c', probe], {})
+          // Before the first success a non-answer is the norm, so one attempt
+          // says all it can. Afterwards it is surprising enough to be worth
+          // re-asking: on modest hardware indexing a single block, or the
+          // RocksDB compaction behind it, blocks the RPC loop past the read
+          // timeout, and one such blip is not evidence of a sync regression.
+          for (let attempt = everSynced ? 3 : 1; attempt > 0; attempt--) {
+            const res = await electrsContainer.exec(['bash', '-c', probe], {})
 
-          if (
-            res.exitCode === 0 &&
-            res.stdout.toString().includes('"result"')
-          ) {
-            return { message: i18n('Fully synced'), result: 'success' }
+            if (
+              res.exitCode === 0 &&
+              res.stdout.toString().includes('"result"')
+            ) {
+              if (!everSynced) {
+                await storeJson.merge(effects, { everSynced: true })
+                everSynced = true
+              }
+              return { message: i18n('Fully synced'), result: 'success' }
+            }
           }
 
+          // A built index is never rebuilt, so past the first success the
+          // build message would promise a fully-synced user hours of work
+          // that is not happening — and send them to reindex a good index.
           return {
-            message: i18n(
-              'Electrs is building its address index. This can take several hours on first run.',
-            ),
+            message: everSynced
+              ? i18n(
+                  'Electrs is not responding. It is likely busy indexing; this usually clears on its own.',
+                )
+              : i18n(
+                  'Electrs is building its address index. This can take several hours on first run.',
+                ),
             result: 'loading',
           }
         },
