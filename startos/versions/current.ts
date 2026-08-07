@@ -1,4 +1,5 @@
 import { VersionInfo } from '@start9labs/start-sdk'
+import { sdk } from '../sdk'
 
 export const current = VersionInfo.of({
   version: '0.11.1:18',
@@ -19,5 +20,15 @@ Pojedynczy portfel, który zniknął bez zamknięcia połączenia — uśpiony l
 
 Un seul portefeuille disparu sans fermer sa connexion — un ordinateur portable mis en veille, un VPN ou un circuit Tor coupé — pouvait figer le serveur entier. Electrs écrit chaque réponse depuis la boucle qui indexe aussi les blocs, et cette écriture attendait le portefeuille disparu aussi longtemps que la pile réseau réessayait : aucun portefeuille n'était servi et aucun bloc n'était indexé jusqu'à ce qu'elle abandonne, ce qui prenait de vingt minutes à huit heures. Le serveur repartait toujours de lui-même, mais un serveur figé ressemble à une resynchronisation bloquée, et le redémarrer était le seul moyen d'écourter l'attente. Electrs abandonne désormais un portefeuille qui n'a rien accepté pendant une minute entière et ne déconnecte que celui-là, en laissant tout le reste fonctionner. Rien de tout cela n'a jamais exigé de réindexer ni endommagé un index.`,
   },
-  migrations: {},
+  migrations: {
+    up: async ({ effects }) => {
+      // replay keys abandoned when bitcoind renamed its config action
+      // ('config' → 'other-config' → 'autoconfig'); no-op where absent
+      await sdk.action.clearTask(
+        effects,
+        'bitcoind:config',
+        'bitcoind:other-config',
+      )
+    },
+  },
 })
