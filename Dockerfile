@@ -6,11 +6,17 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -qqy --no-install-recommends 
     clang \
     cmake \
     libclang-dev \
-    librocksdb-dev
+    librocksdb-dev \
+    patch
 RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 WORKDIR /build
 COPY ./electrs .
+# Upstream deltas we carry — see patches/README.md for what each one is and the
+# condition that retires it. --fuzz=0 so a submodule bump that changes the context
+# fails the build loudly instead of applying somewhere subtly wrong.
+COPY ./patches ./patches
+RUN set -e; for p in ./patches/*.patch; do [ -e "$p" ] || continue; echo "applying $p"; patch -p1 --fuzz=0 <"$p"; done
 ENV ROCKSDB_INCLUDE_DIR=/usr/include
 ENV ROCKSDB_LIB_DIR=/usr/lib
 RUN rustup toolchain install stable

@@ -21,3 +21,6 @@ Electrs is built from source via the `electrs/` git submodule (see `.gitmodules`
   git -C electrs checkout v<new version>
   git add electrs
   ```
+- **Carried patches** — re-validate everything in `patches/` against the new tag:
+  - Check each patch's **Retire when** condition in [patches/README.md](patches/README.md). A patch upstream has absorbed is deleted, along with its README section — not re-applied.
+  - The Dockerfile applies what remains with `patch -p1 --fuzz=0`, so a patch whose context the bump changed fails the build. That failure is the gate working: re-derive the patch against the new tag (or retire it) — never loosen `--fuzz`.

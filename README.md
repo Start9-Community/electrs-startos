@@ -40,6 +40,12 @@
 | Architectures | x86_64, aarch64                          |
 | Entrypoint    | `electrs`                                |
 
+electrs is built from the `electrs/` submodule, which tracks an upstream release tag. The build
+applies every patch in `patches/` before `cargo install`, so the shipped binary is that tag plus
+exactly those deltas — see [patches/README.md](patches/README.md) for what each one fixes and the
+condition that retires it. A submodule bump must re-validate them: `patch` runs with `--fuzz=0`,
+so a patch whose context has changed fails the build rather than applying anyway.
+
 ---
 
 ## Volume and Data Layout
@@ -227,6 +233,19 @@ Bitcoin's own sync state is surfaced via the `sync-progress` dependency health c
 5. **Limited configuration** — some advanced options (server banner, timeouts) not exposed
 
 ---
+
+## What Is Changed from Upstream
+
+One carried patch, applied at build time (`patches/`, documented in
+[patches/README.md](patches/README.md)):
+
+- **Client writes are bounded at 60s (`SO_SNDTIMEO`).** Upstream writes Electrum responses with a
+  blocking `write_all` from `handle_events`, which runs inline on the single `serve()` loop
+  alongside `rpc.sync()`, and sets no socket timeouts anywhere. One client that stops draining its
+  receive window therefore halts responses *and* indexing for as long as the kernel retransmits —
+  observed in the field from 19 minutes to 8h39m on two unrelated servers, each ending in a burst
+  of `disconnecting due to failed to send response` followed by a catch-up batch of every block
+  missed. The timeout lets the existing error path drop just that peer.
 
 ## What Is Unchanged from Upstream
 

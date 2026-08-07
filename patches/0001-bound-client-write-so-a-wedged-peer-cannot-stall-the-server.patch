@@ -1,0 +1,51 @@
+diff --git a/src/server.rs b/src/server.rs
+index f50662f..953be8f 100644
+--- a/src/server.rs
++++ b/src/server.rs
+@@ -7,6 +7,7 @@ use std::{
+     io::{BufRead, BufReader, Write},
+     iter::once,
+     net::{Shutdown, TcpListener, TcpStream},
++    time::Duration,
+ };
+ 
+ use crate::{
+@@ -17,6 +18,18 @@ use crate::{
+     thread::spawn,
+ };
+ 
++/// How long a single write to a client may make no progress before that client
++/// is dropped.
++///
++/// This is `SO_SNDTIMEO`, so it bounds one `write` syscall, not a whole
++/// response: a client that keeps draining resets it on every partial write, so
++/// a slow link cannot trip it however large the response. What trips it is a
++/// receive window that stays shut for the whole minute — a peer that is gone,
++/// or one whose application has stopped reading altogether. A live-but-stalled
++/// client can manage that and will be disconnected; it reconnects, which is the
++/// ordinary cost of not letting it freeze the server for everyone else.
++const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
++
+ struct Peer {
+     id: usize,
+     client: Client,
+@@ -212,6 +225,19 @@ fn handle_peer_events(
+ fn accept_loop(listener: TcpListener, server_tx: Sender<Event>) -> Result<()> {
+     for (peer_id, conn) in listener.incoming().enumerate() {
+         let stream = conn.context("failed to accept")?;
++        // Responses are written from `handle_events`, which runs inline on the
++        // single server loop alongside `rpc.sync()`. `Peer::send` uses a
++        // blocking `write_all`, so a client that stops draining its receive
++        // window — gone without a FIN, suspended, or behind a stalled proxy —
++        // holds that loop for as long as the kernel keeps retrying, freezing
++        // indexing and every other client with it. Bound the wait so the
++        // existing error path can drop just the offending peer instead.
++        //
++        // `try_clone` below dups the fd, and the option lives on the socket, so
++        // setting it here also covers the clone handed to `Peer`.
++        if let Err(e) = stream.set_write_timeout(Some(WRITE_TIMEOUT)) {
++            warn!("{}: failed to set write timeout {}", peer_id, e);
++        }
+         let tx = server_tx.clone();
+         spawn("recv_loop", move || {
+             let result = recv_loop(peer_id, &stream, tx);
