@@ -13,7 +13,7 @@ RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 WORKDIR /build
 COPY ./electrs .
 # Upstream deltas we carry — see patches/README.md for what each one is and the
-# condition that retires it. --fuzz=0 so a submodule bump that moves the context
+# condition that retires it. --fuzz=0 so a submodule bump that changes the context
 # fails the build loudly instead of applying somewhere subtly wrong.
 COPY ./patches ./patches
 RUN set -e; for p in ./patches/*.patch; do [ -e "$p" ] || continue; echo "applying $p"; patch -p1 --fuzz=0 <"$p"; done

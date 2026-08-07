@@ -2,8 +2,8 @@
 
 Deltas applied to the `electrs` submodule at build time, in filename order, by the
 `patch -p1 --fuzz=0` step in the [Dockerfile](../Dockerfile). `--fuzz=0` is deliberate: after a
-submodule bump a patch whose context has moved must fail the build, not land somewhere subtly
-wrong.
+submodule bump a patch whose context has changed must fail the build, not apply anyway with the
+mismatch ignored.
 
 Each patch here is a liability — it forks the shipped binary from the upstream tag the submodule
 names, and every electrs bump has to re-validate it. Add one only when the alternative is shipping
@@ -31,7 +31,10 @@ index to a 23-hour rebuild that was never needed.
 
 The patch sets a 60s `SO_SNDTIMEO` on each accepted socket. That is a per-`write`-syscall deadline,
 not a per-response one, so a slow-but-draining client resets it on every partial write and is never
-dropped — only a peer that accepts nothing at all for a full minute trips it, which a live client
-cannot do, since the kernel keeps ACKing into its receive buffer whether or not the application
-reads. When it does trip, `write_all` returns the error and the existing path disconnects exactly
-that peer, leaving the server loop free.
+dropped — only a peer that accepts nothing at all for a full minute trips it. Brief application
+pauses don't qualify: the client's kernel keeps accepting into its receive buffer while the
+application is busy. What does qualify is a peer that is gone entirely, or a live one whose
+application has stopped reading for long enough to fill that buffer and hold its window shut for
+the whole minute — that client is disconnected by design and simply reconnects, the ordinary cost
+of not letting it freeze the server for everyone else. When the timeout trips, `write_all` returns
+the error and the existing path disconnects exactly that peer, leaving the server loop free.

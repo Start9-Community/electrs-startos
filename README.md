@@ -44,7 +44,7 @@ electrs is built from the `electrs/` submodule, which tracks an upstream release
 applies every patch in `patches/` before `cargo install`, so the shipped binary is that tag plus
 exactly those deltas — see [patches/README.md](patches/README.md) for what each one fixes and the
 condition that retires it. A submodule bump must re-validate them: `patch` runs with `--fuzz=0`,
-so a patch whose context has moved fails the build rather than applying somewhere else.
+so a patch whose context has changed fails the build rather than applying anyway.
 
 ---
 
