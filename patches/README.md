@@ -38,3 +38,12 @@ application has stopped reading for long enough to fill that buffer and hold its
 the whole minute — that client is disconnected by design and simply reconnects, the ordinary cost
 of not letting it freeze the server for everyone else. When the timeout trips, `write_all` returns
 the error and the existing path disconnects exactly that peer, leaving the server loop free.
+
+Because the deadline is per-syscall, it bounds a wedged peer at a small **multiple** of 60s rather
+than at 60s. Measured on loopback against a peer that never reads, using a 3s stand-in for the
+value: `write` returned partial counts twice — 2.6 MB, then 95 KB as the peer's receive buffer
+auto-tuned upward — each after blocking a full period, and only the third call saw the whole period
+pass with zero bytes and returned `WouldBlock`. Total 9.1s for a 3s timeout, so expect a couple of
+minutes at 60s. That is the ceiling the patch buys against the 19m–8h39m it replaces, not a 60s one.
+The same harness confirms the other half: a peer draining slowly but steadily accepted 64 MB over
+28s without the timeout ever firing.
