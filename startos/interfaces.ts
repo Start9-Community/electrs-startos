@@ -4,9 +4,9 @@ import { electrumHostId, port } from './utils'
 
 export const setInterfaces = sdk.setupInterfaces(async ({ effects }) => {
   const multihost = sdk.MultiHost.of(effects, electrumHostId)
-  // SSL-only by design: with secure: null the OS exposes just the TLS port
-  // (50002) on regular LAN gateways. Electrum traffic carries address queries,
-  // all major wallets support ssl://, and this matches the Fulcrum package.
+  // secure: null still allocates a plaintext external port. It is reachable
+  // over lxcbr0 — the address dependents resolve — and from nowhere else, so
+  // off the box the TLS one is all there is.
   const mainMultiOrigin = await multihost.bindPort(port, {
     protocol: null,
     addSsl: {
@@ -19,12 +19,14 @@ export const setInterfaces = sdk.setupInterfaces(async ({ effects }) => {
     secure: null,
   })
   const main = sdk.createInterface(effects, {
-    name: i18n('Main'),
+    name: i18n('Electrum (SSL)'),
     id: 'main',
-    description: i18n('The main interface for accessing electrs'),
+    description: i18n('The Electrum protocol endpoint, served over SSL'),
     type: 'api',
     masked: false,
-    schemeOverride: null,
+    // protocol: null leaves the origin scheme-less, which renders every address
+    // as a bare host:port with nothing marking it as TLS.
+    schemeOverride: { ssl: 'ssl', noSsl: 'tcp' },
     username: null,
     path: '',
     query: {},

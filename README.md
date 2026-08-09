@@ -108,11 +108,13 @@ Total time is hardware-dependent and can take many hours. Electrs binds the Elec
 
 ## Network Access and Interfaces
 
-| Interface | Internal Port | External Port | Protocol                    | Purpose            |
-| --------- | ------------- | ------------- | --------------------------- | ------------------ |
-| Main      | 50001         | 50002         | TCP+SSL (Electrum protocol) | Wallet connections |
+| Interface      | Internal Port | Preferred External Port | Protocol                    | Purpose            |
+| -------------- | ------------- | ----------------------- | --------------------------- | ------------------ |
+| Electrum (SSL) | 50001         | 50002 (TLS)             | TCP+SSL (Electrum protocol) | Wallet connections |
 
-The interface is SSL-only: electrs itself listens unencrypted on 50001 inside the container, and StartOS terminates TLS at the platform edge on 50002 (`addSsl` on the bind, `secure: null`). No plain-TCP port is exposed externally — this is deliberate (Electrum traffic carries address queries; all major wallets support `ssl://`), and it matches the Fulcrum package.
+electrs listens unencrypted on 50001 inside the container and StartOS terminates TLS in front of it (`addSsl` on the bind, `secure: null`). **TLS is the only way in from off the box** — LAN, `.local`, domains and Tor alike — which is what makes **Electrum (SSL)** an accurate name. A plaintext external port is allocated too. It is reachable at the bridge IP by the host and by other services over `lxcbr0` — source-filtered to that subnet — and from nowhere else; no LAN or WAN gateway gets a forward for it. That is the address `getBridgeAddress(…, { ssl: false })` hands to dependents like mempool, specter and canary, and it is what replaced the retired `electrs.startos` DNS name. `schemeOverride: { ssl: 'ssl', noSsl: 'tcp' }` is what renders an address as `ssl://host:port`; without it a `protocol: null` bind prints a bare `host:port` with nothing marking it as TLS.
+
+**The external port is per-server.** `preferredExternalPort` is a preference, and whatever StartOS assigns is permanent — an existing binding never changes its external port; only uninstall and reinstall reassigns. Read the live values with `start-cli package host binding list electrs electrum` rather than assuming 50002. Servers migrated from 0.3.5.1 are the known case where it is not: their 0.3.x manifest bound one plaintext port over Tor (`lan-config` was commented out), and the 0.4 package rebinding the same host and internal port left the TLS leg on 50001. Those servers serve `ssl://host:50001` and keep doing so.
 
 **Access methods (StartOS 0.4.0):**
 
@@ -274,8 +276,8 @@ architectures: [x86_64, aarch64]
 volumes:
   main: /data
 ports:
-  electrum_internal: 50001 (not exposed externally)
-  electrum_ssl: 50002 (StartOS-terminated TLS; the only external port)
+  electrum_internal: 50001 (plaintext; on-box only, never reachable off the machine)
+  electrum_ssl: 50002 preferred (StartOS-terminated TLS; the only external address)
 dependencies:
   - bitcoind (required)
 fixed_config:
