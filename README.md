@@ -107,7 +107,7 @@ A plaintext external port is allocated too, but it is reachable only at the brid
 
 The scheme override is what renders an address as `ssl://host:port`; without it the bind would print a bare `host:port` with nothing marking it as TLS.
 
-**Clients that accept or pin an unrecognised certificate connect as-is.** The Electrum desktop wallet is the exception — it rejects the device's CA chain on every address, and needs the client-side step in `instructions.md`.
+**Clients that accept or pin an unrecognised certificate connect as-is.** The Electrum desktop wallet is the exception — it rejects the device's CA chain on every address, and needs the client-side step documented at <https://docs.start9.com/bitcoin-guides/connecting-wallets>.
 
 **The external port is per-server, and permanent.** The preferred port is only a preference, and whatever StartOS assigns to a binding never changes — only uninstall and reinstall reassigns it. Read the live value with `start-cli package host binding list electrs electrum` rather than assuming. Servers migrated from the previous generation are the known case where it differs: their old manifest bound a single plaintext port over Tor, and rebinding the same host and internal port left the TLS leg on 50001. Those servers serve `ssl://host:50001` and will keep doing so.
 

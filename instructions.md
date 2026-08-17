@@ -4,6 +4,8 @@ Electrs needs a fully-synced Bitcoin archival node to do anything useful. Instal
 
 ## Documentation
 
+- [Connecting a wallet](https://docs.start9.com/bitcoin-guides/connecting-wallets) — the Start9 guide to pointing a wallet at your own Electrum server: the certificate, SSL, Tor, and where the setting lives in each wallet.
+- [Bitcoin wallets](https://docs.start9.com/bitcoin-guides/bitcoin-wallets) — which wallets work with an Electrum server, on which platforms.
 - [Electrs upstream README](https://github.com/romanz/electrs/blob/master/README.md) — the upstream project's documentation, including configuration reference and protocol notes.
 
 ## What you get on StartOS
@@ -28,22 +30,9 @@ Once that first **Fully synced** appears, the index is built and is never rebuil
 
 Copy an address from the **Interfaces** page into your wallet's server settings. It is shown as an `ssl://` URL, and the host and port in it are what your wallet needs — **take the port from that address rather than assuming one**, since StartOS assigns it and it is not always the same number on every server.
 
-Make sure your wallet's SSL option is on: in Sparrow that is _Private Electrum → Use SSL_, and in Electrum it is the `s` suffix on the server entry. Connecting with SSL off fails with a generic error such as "Retries exhausted" rather than anything naming TLS.
+Only the encrypted endpoint is reachable from off this server — there is no plaintext port on any address — so your wallet's SSL option has to be on, and it has to be told to trust the certificate StartOS serves. Both steps, and where the settings live in each wallet, are in the [Start9 guide to connecting a wallet](https://docs.start9.com/bitcoin-guides/connecting-wallets). The Electrum desktop wallet needs a file placed by hand and is covered there too.
 
-The certificate is issued by your device's root CA. A wallet that lets you accept or pin an unrecognised certificate — Sparrow does — connects with nothing further to do; accept it when asked. Electrs then serves all standard Electrum protocol queries: balances, history, transaction lookups, mempool tracking.
-
-### Setting up the Electrum desktop wallet
-
-Electrum is the exception. It checks a server against its own bundled list of public certificate authorities, and your device's certificate authority is not on that list, so it refuses the connection. It has no setting for trusting your device either, so you place the certificate in its data directory yourself. This is once per address, not once per session.
-
-1. Download `http://<your-server>/static/local-root-ca.crt` — the same root CA StartOS offers you for your browser.
-2. Delete any file already sitting at `<data-dir>/certs/<host>`. One left over from an earlier attempt stops the rest of this working, without reporting anything.
-3. Save the certificate as `<data-dir>/certs/<host>`, with no file extension. `<host>` has to match exactly what you type into Electrum, so reaching the same server at `192.168.1.5` and at `my-server.local` needs one file for each.
-4. Enter the server as `<host>:<port>:s`, taking the port from the address on the **Interfaces** page.
-
-`<data-dir>` is `~/.electrum` on Linux, `~/Library/Application Support/Electrum` on macOS, and `%APPDATA%\Electrum` on Windows.
-
-This trusts the authority rather than one certificate, so it keeps working when your server renews.
+Once connected, Electrs serves all standard Electrum protocol queries: balances, history, transaction lookups, mempool tracking.
 
 ### Actions
 

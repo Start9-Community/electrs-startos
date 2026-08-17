@@ -27,9 +27,10 @@ patch, because it changes the guarantee rather than just removing a local delta.
 
 ## Watch spesmilo/electrum#7459 before trusting the documented Electrum workaround
 
-`instructions.md` walks the user through dropping the device's root CA at
-`<datadir>/certs/<host>` so the Electrum desktop wallet will connect. **That path is
-undocumented and works by accident**, which is what makes it worth watching:
+The published [wallet-connection guide](https://docs.start9.com/bitcoin-guides/connecting-wallets)
+walks the user through dropping the device's root CA at `<datadir>/certs/<host>` so the
+Electrum desktop wallet will connect. **That path is undocumented and works by accident**,
+which is what makes it worth watching:
 `_get_ssl_context` only reaches `is_server_ca_signed` when `_is_saved_ssl_cert_available()`
 is False, and that check requires nothing more than a file that exists, parses as PEM/X509
 and is in date — never that it is self-signed or matches the peer. The file then goes to
@@ -50,7 +51,7 @@ refusing to connect again.
 
 Revisit the docs when any of these lands:
 
-- **Electrum documents the `certs/<host>` drop** — soften the instructions' framing from
+- **Electrum documents the `certs/<host>` drop** — soften the guide's framing from
   "you place the certificate yourself" to a link at the upstream page.
 - **A CA-import path ships** (config key or GUI file picker feeding `load_verify_locations`)
   — replace the manual steps with it.
@@ -61,8 +62,10 @@ Revisit the docs when any of these lands:
 
 Touches when it changes:
 
-- `instructions.md` — the `### Setting up the Electrum desktop wallet` section, and the
-  sentence above it about wallets that accept or pin an unrecognised certificate
+- `start-technologies` → `projects/start-docs/bitcoin-guides/src/connecting-wallets.md` —
+  the `## The Electrum desktop wallet` section and the trust-the-certificate list above it.
+  That page is already published, so the change goes in as a PR against `live-docs`.
+- `instructions.md` — the link to that page under `### Electrum (SSL) interface`
 - `README.md` — the one-sentence pointer in the interfaces section
 
 fulcrum-startos carries the identical section and the same TODO; change both together.
