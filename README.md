@@ -4,13 +4,15 @@
 
 # Electrs on StartOS
 
-> **Upstream docs:** <https://github.com/romanz/electrs/blob/master/README.md>
->
 > Everything not listed in this document should behave the same as upstream
-> Electrs. If a feature, setting, or behavior is not mentioned here, the
-> upstream documentation is accurate and fully applicable.
+> electrs. If a feature, setting, or behavior is not mentioned here, the
+> upstream documentation is accurate and fully applicable — see the
+> Documentation section of `instructions.md` for links.
 
-[Electrs](https://github.com/romanz/electrs) is an efficient Electrum Server implementation in Rust, optimized for personal use. It indexes the Bitcoin blockchain and serves Electrum protocol queries to wallets.
+[electrs](https://github.com/romanz/electrs/) is an Electrum server: it builds an address index over your own Bitcoin node so wallets can query their history without asking anyone else. This package wires it to that node over the internal bridge, serves it over TLS, and reports the one thing upstream cannot — how far through its index it has got.
+
+- **Upstream repo:** <https://github.com/romanz/electrs/>
+- **Wrapper repo:** <https://github.com/Start9-Community/electrs-startos>
 
 ---
 
@@ -18,252 +20,164 @@
 
 - [Image and Container Runtime](#image-and-container-runtime)
 - [Volume and Data Layout](#volume-and-data-layout)
-- [Installation and First-Run Flow](#installation-and-first-run-flow)
-- [Configuration Management](#configuration-management)
-- [Network Access and Interfaces](#network-access-and-interfaces)
-- [Actions (StartOS UI)](#actions-startos-ui)
+- [File Models](#file-models)
 - [Dependencies](#dependencies)
-- [Backups and Restore](#backups-and-restore)
+- [Network Access and Interfaces](#network-access-and-interfaces)
+- [Installation and First-Run Flow](#installation-and-first-run-flow)
+- [Actions](#actions)
+- [Tasks](#tasks)
 - [Health Checks](#health-checks)
+- [Backups and Restore](#backups-and-restore)
 - [Limitations and Differences](#limitations-and-differences)
-- [What Is Unchanged from Upstream](#what-is-unchanged-from-upstream)
-- [Contributing](#contributing)
 - [Quick Reference for AI Consumers](#quick-reference-for-ai-consumers)
 
 ---
 
 ## Image and Container Runtime
 
-| Property      | Value                                    |
-| ------------- | ---------------------------------------- |
-| Image         | Custom `dockerBuild` (built from source) |
-| Architectures | x86_64, aarch64                          |
-| Entrypoint    | `electrs`                                |
+One image, built here from upstream source.
 
-electrs is built from the `electrs/` submodule, which tracks an upstream release tag. The build
-applies every patch in `patches/` before `cargo install`, so the shipped binary is that tag plus
-exactly those deltas — see [patches/README.md](patches/README.md) for what each one fixes and the
-condition that retires it. A submodule bump must re-validate them: `patch` runs with `--fuzz=0`,
-so a patch whose context has changed fails the build rather than applying anyway.
+| Property      | Value                               |
+| ------------- | ----------------------------------- |
+| Image         | Built from this repo's `Dockerfile` |
+| Architectures | x86_64, aarch64                     |
+| Command       | `electrs`                           |
 
----
+| Subcontainer | Purpose                                  |
+| ------------ | ---------------------------------------- |
+| `electrs`    | The only daemon — the one to `attach` to |
 
 ## Volume and Data Layout
 
-| Volume                | Mount Point     | Purpose                                          |
-| --------------------- | --------------- | ------------------------------------------------ |
-| `main`                | `/data`         | Configuration and index database                 |
-| (bitcoind dependency) | `/mnt/bitcoind` | Read-only access to Bitcoin data for cookie auth |
-| (assets)              | `/assets`       | Scripts for health checks                        |
+One volume, plus a read-only view of Bitcoin's.
 
-**StartOS-specific files:**
+| Volume                | Mount Point     | Purpose                                  |
+| --------------------- | --------------- | ---------------------------------------- |
+| `main`                | `/data`         | The address index, the config, the store |
+| Bitcoin's `main` (ro) | `/mnt/bitcoind` | The RPC cookie                           |
 
-- `electrs.toml` — configuration file managed by StartOS
-- `db/` — RocksDB index database (excluded from backups)
+**The index is the bulk of the volume and is excluded from backups** — see [Backups and Restore](#backups-and-restore). Everything else on `main` is small.
 
----
+## File Models
 
-## Installation and First-Run Flow
+Two models, and most of the config file is pinned rather than configurable.
 
-| Step               | Upstream                                        | StartOS                        |
-| ------------------ | ----------------------------------------------- | ------------------------------ |
-| Bitcoin connection | Manual configuration (RPC address, cookie path) | Auto-configured via dependency |
-| Configuration      | CLI arguments or config file                    | Configure action in StartOS UI |
-| Initial sync       | ~6.5 hours for full blockchain                  | Same (depends on hardware)     |
+| File           | Format | Modelled                | Written by                   |
+| -------------- | ------ | ----------------------- | ---------------------------- |
+| `electrs.toml` | TOML   | Yes — `FileHelper.toml` | Init, `main`, and the action |
+| `store.json`   | JSON   | Yes — `FileHelper.json` | `main`                       |
 
-**Key difference:** On StartOS, the Bitcoin connection is fully automatic — Electrs reaches bitcoind's RPC and P2P ports over the internal LXC bridge (the addresses are resolved from the `bitcoind` dependency at runtime and written into `electrs.toml`), using cookie authentication from the mounted dependency volume. P2P resolves bitcoind's whitelisted `peer-local` host, so it requires a bitcoind revision that publishes it (see `startos/dependencies.ts`).
+Its fields fall into three groups:
 
-**First run:** Electrs waits for Bitcoin to finish its initial block download before it starts building its own address index. Expect two stages on the StartOS status card:
+- **Pinned.** The cookie path, the network, and the Electrum bind address are `z.literal(...).catch(...)`, so a changed value is **repaired on read** rather than merely overwritten. The auth field is pinned to _undefined_ for a specific reason: electrs exits outright if both an auth value and a cookie file are set.
+- **Resolved at start.** The Bitcoin RPC and P2P addresses are written by `main` from the live bridge addresses. **When Bitcoin is absent they are omitted rather than defaulted**, so electrs fails visibly and the reactive read heals it in with one restart when Bitcoin appears.
+- **User-owned via the action.** The log level and the two indexing limits.
 
-1. `starting` — "Electrum server is starting" until Electrs binds port 50001
-2. `loading` — "Electrs is building its address index…" while Electrs builds its RocksDB index
+Every other upstream option — the database directory, the block-download wait, the RPC timeout, the server banner — is fixed or not exposed.
 
-Total time is hardware-dependent and can take many hours. Electrs binds the Electrum port before it connects to bitcoind, so the port being open is not a signal that either stage has finished — Sync Progress reaching "Fully synced" is.
-
----
-
-## Configuration Management
-
-| Setting              | Upstream Method | StartOS Method                                                    |
-| -------------------- | --------------- | ----------------------------------------------------------------- |
-| `auth`               | Config/CLI      | Never set — mutually exclusive with `cookie_file`                 |
-| `cookie_file`        | Config/CLI      | Fixed: `/mnt/bitcoind/.cookie`                                    |
-| `daemon_rpc_addr`    | Config/CLI      | Auto: bitcoind RPC over the LXC bridge                            |
-| `daemon_p2p_addr`    | Config/CLI      | Auto: bitcoind whitelisted P2P (`peer-local`) over the LXC bridge |
-| `network`            | Config/CLI      | Fixed: `bitcoin`                                                  |
-| `electrum_rpc_addr`  | Config/CLI      | Fixed: `0.0.0.0:50001`                                            |
-| `log_filters`        | Config/CLI      | Configure action: "Log Level"                                     |
-| `index_batch_size`   | Config/CLI      | Configure action: "Index Batch Size"                              |
-| `index_lookup_limit` | Config/CLI      | Configure action: "Index Lookup Limit"                            |
-
-**Configuration options NOT exposed on StartOS:**
-
-- `db_dir` — fixed to `/data/db`
-- `skip_block_download_wait` — not exposed
-- `jsonrpc_timeout` — not exposed
-- `server_banner` — not exposed
-- `signet_magic` — not applicable (mainnet only)
-
----
-
-## Network Access and Interfaces
-
-| Interface      | Internal Port | Preferred External Port | Protocol                    | Purpose            |
-| -------------- | ------------- | ----------------------- | --------------------------- | ------------------ |
-| Electrum (SSL) | 50001         | 50002 (TLS)             | TCP+SSL (Electrum protocol) | Wallet connections |
-
-electrs listens unencrypted on 50001 inside the container and StartOS terminates TLS in front of it (`addSsl` on the bind, `secure: null`). **TLS is the only way in from off the box** — LAN, `.local`, domains and Tor alike — which is what makes **Electrum (SSL)** an accurate name. A plaintext external port is allocated too. It is reachable at the bridge IP by the host and by other services over `lxcbr0` — source-filtered to that subnet — and from nowhere else; no LAN or WAN gateway gets a forward for it. That is the address `getBridgeAddress(…, { ssl: false })` hands to dependents like mempool, specter and canary, and it is what replaced the retired `electrs.startos` DNS name. `schemeOverride: { ssl: 'ssl', noSsl: 'tcp' }` is what renders an address as `ssl://host:port`; without it a `protocol: null` bind prints a bare `host:port` with nothing marking it as TLS.
-
-**The external port is per-server.** `preferredExternalPort` is a preference, and whatever StartOS assigns is permanent — an existing binding never changes its external port; only uninstall and reinstall reassigns. Read the live values with `start-cli package host binding list electrs electrum` rather than assuming 50002. Servers migrated from 0.3.5.1 are the known case where it is not: their 0.3.x manifest bound one plaintext port over Tor (`lan-config` was commented out), and the 0.4 package rebinding the same host and internal port left the TLS leg on 50001. Those servers serve `ssl://host:50001` and keep doing so.
-
-**Access methods (StartOS 0.4.0):**
-
-- LAN IP with unique port
-- `<hostname>.local` with unique port
-- Tor `.onion` address
-- Custom domains (if configured)
-
----
-
-## Actions (StartOS UI)
-
-### Configure
-
-| Property     | Value                    |
-| ------------ | ------------------------ |
-| ID           | `config`                 |
-| Name         | Configure                |
-| Visibility   | Enabled (always visible) |
-| Availability | Any status               |
-| Purpose      | Adjust Electrs settings  |
-
-**Options:**
-
-| Setting            | Default | Description                                               |
-| ------------------ | ------- | --------------------------------------------------------- |
-| Log Level          | INFO    | Verbosity: ERROR, WARN, INFO, DEBUG, TRACE                |
-| Index Batch Size   | 10      | Max blocks to request from Bitcoin per batch (1-10000)    |
-| Index Lookup Limit | 0       | Max transactions to lookup before timeout (0 = unlimited) |
-
----
+`store.json` holds two flags the package uses to avoid lying to the user: whether the index has _ever_ finished, and whether the completion notification has been sent. Both matter to how sync is reported — see [Health Checks](#health-checks).
 
 ## Dependencies
 
-### Bitcoin (required)
+One, and it is required.
 
-| Property           | Value                                                  |
-| ------------------ | ------------------------------------------------------ |
-| Version constraint | `>= 28.3`                                              |
-| Required state     | Running                                                |
-| Health checks      | `bitcoind`, `sync-progress`                            |
-| Mounted volume     | `main` → `/mnt/bitcoind` (read-only)                   |
-| Purpose            | Blockchain data via RPC and P2P, cookie authentication |
+| Dependency | Required | Health checks required      | Mounted                              | Why                       |
+| ---------- | -------- | --------------------------- | ------------------------------------ | ------------------------- |
+| Bitcoin    | Yes      | `bitcoind`, `sync-progress` | `main`, read-only at `/mnt/bitcoind` | Chain data and the cookie |
 
-The `sync-progress` health check surfaces Bitcoin's initial block download state directly in the Electrs dependency panel — while Bitcoin is still syncing, Electrs reports its bitcoind dependency as unsatisfied rather than running its own duplicate RPC poll.
+**Requiring Bitcoin's own sync check is deliberate.** While Bitcoin is still doing its initial download, electrs reports its dependency as unsatisfied rather than running a duplicate poll of its own — the state shows in one place instead of two.
 
-The service automatically:
+**Bitcoin must not be pruned**, and a recurring task enforces it: electrs needs an archival node. It does **not** need Bitcoin's transaction index, unlike some other Electrum servers.
 
-- Connects to Bitcoin RPC over the internal LXC bridge (resolved from the `bitcoind` dependency)
-- Connects to Bitcoin P2P over the internal LXC bridge, on bitcoind's whitelisted `peer-local` host (resolved from the `bitcoind` dependency)
-- Uses cookie authentication from the mounted dependency volume
-- Restarts if the Bitcoin cookie file changes
+**Two addresses are resolved, and the P2P one is not the obvious host.** It resolves Bitcoin's _whitelisted_ peer listener, not the ordinary one. electrs fetches whole blocks over P2P — for the index, and again for any history query on a scripthash nothing has subscribed to — and on the ordinary listener that traffic earns no permissions: Bitcoin may evict the connection to seat another peer, or cut it off under its upload limit. **electrs does not reconnect its P2P link; it exits.** The whitelisted listener is exempt from both.
 
-**Auto-configuration:** On install, a critical task auto-configures Bitcoin to disable pruning (`prune: 0`), since Electrs requires an archival node.
+**The service also restarts when Bitcoin's cookie changes**, watched directly on the mounted file. An absent cookie means Bitcoin is down, and is deliberately not treated as a change.
 
-**Bitcoin requirements:**
+## Network Access and Interfaces
 
-- `server=1` must be enabled (default on StartOS)
-- `txindex=1` is NOT required (unlike some other Electrum servers)
-- Pruning must be disabled (archival node required)
+One interface, and the difference between its two ports is the thing to understand.
 
----
+| Interface      | Id     | Type | Internal Port | Description                              |
+| -------------- | ------ | ---- | ------------- | ---------------------------------------- |
+| Electrum (SSL) | `main` | api  | 50001         | The Electrum protocol endpoint, over SSL |
 
-## Backups and Restore
+electrs listens **unencrypted** on 50001 inside the container, and StartOS terminates TLS in front of it. **TLS is the only way in from off the box** — LAN, `.local`, domains and Tor alike — which is what makes the name accurate.
 
-**Included in backup:**
+A plaintext external port is allocated too, but it is reachable only at the bridge address, by the host and by other services, source-filtered to that subnet. No LAN or WAN gateway gets a forward for it. That is the address dependents such as Mempool, Specter and Canary resolve, and it is what replaced the retired `.startos` DNS name.
 
-- `main` volume configuration files (`electrs.toml`)
+The scheme override is what renders an address as `ssl://host:port`; without it the bind would print a bare `host:port` with nothing marking it as TLS.
 
-**Excluded from backup:**
+**Clients that accept or pin an unrecognised certificate connect as-is.** The Electrum desktop wallet is the exception — it rejects the device's CA chain on every address, and needs the client-side step in `instructions.md`.
 
-- `db/` directory — the RocksDB index database
+**The external port is per-server, and permanent.** The preferred port is only a preference, and whatever StartOS assigns to a binding never changes — only uninstall and reinstall reassigns it. Read the live value with `start-cli package host binding list electrs electrum` rather than assuming. Servers migrated from the previous generation are the known case where it differs: their old manifest bound a single plaintext port over Tor, and rebinding the same host and internal port left the TLS leg on 50001. Those servers serve `ssl://host:50001` and will keep doing so.
 
-**Restore behavior:**
+## Installation and First-Run Flow
 
-- Configuration is restored
-- Index database must be rebuilt from scratch (will re-sync on first start)
-- Re-indexing takes several hours
+Install seeds the config and nothing else. There is no credential and no task on this service.
 
----
+What governs the first run is Bitcoin: electrs cannot index until Bitcoin has finished its own sync, and the dependency's sync check is what holds it there. Once Bitcoin is ready, electrs begins building its address index, which **takes hours on first run** and is the longest thing this package does.
+
+**The index is built once and never rebuilt.** That is worth knowing because the two states look similar from outside — see [Health Checks](#health-checks).
+
+A notification is sent when the index first completes, so the wait does not have to be watched.
+
+## Actions
+
+One action.
+
+### Configure
+
+Sets the log level and two indexing limits.
+
+- **What it changes:** three fields in `electrs.toml`.
+- **Cost:** applies on restart.
+- **Repeat safety:** idempotent.
+- **The indexing limits are the ones with consequences:** the batch size trades memory against indexing speed, and the lookup limit bounds how much work a single history query may do. Neither needs changing for normal use.
+
+## Tasks
+
+One, and it appears on **Bitcoin's** page rather than this one.
+
+| Task                     | Severity   | Raised when       | Cleared when                   |
+| ------------------------ | ---------- | ----------------- | ------------------------------ |
+| Bitcoin's Auto-Configure | `critical` | Bitcoin is pruned | Pruning is disabled on Bitcoin |
+
+It is declared **recurring**, so re-enabling pruning brings it back. The user sees it on Bitcoin's page with nothing there explaining that electrs asked for it.
 
 ## Health Checks
 
-| Check           | Display         | Method                                      |
-| --------------- | --------------- | ------------------------------------------- |
-| Electrum Server | Electrum Server | Port 50001 listening                        |
-| Sync Progress   | Sync Progress   | Electrs's own Electrum RPC readiness signal |
+Two checks, and the second one is the interesting one.
 
-**Electrum Server details:**
+| Check     | Displayed as      | Method                          |
+| --------- | ----------------- | ------------------------------- |
+| `electrs` | "Electrum Server" | The Electrum port is listening  |
+| `sync`    | "Sync Progress"   | A real Electrum query, answered |
 
-The daemon is `success` once port 50001 is listening, and `starting` until then. `checkPortListening` reads `/proc/net/tcp*`, and Electrs binds the listener before it connects to bitcoind, so the port is already open throughout the bitcoind IBD wait — a not-listening result means Electrs has not bound the socket yet, not that it is blocked on Bitcoin. Messages:
+**"Electrum Server" going green does not mean electrs is usable.** electrs binds its listener _before_ it connects to Bitcoin, so the port is open throughout the wait for Bitcoin's sync and throughout the index build. A not-listening result therefore means electrs has not started yet — not that it is blocked. The check reports `starting` rather than failure for exactly that reason.
 
-- `success` — "Electrum server is ready and accepting connections"
-- `starting` — "Electrum server is starting"
+**"Sync Progress" is confirmed positively, and that is not a stylistic choice.** During an index build electrs processes a whole batch of blocks — minutes at a time — before servicing any request, so it very often does not answer at all rather than answering "not ready". The check therefore counts only a real reply as synced, and treats a timeout as not-synced. Reading it the other way round reports "Fully synced" throughout the entire build.
 
-**Sync Progress details:**
+**It also retries only after the first success.** Before then a non-answer is the norm and one attempt says all it can. Afterwards a non-answer is surprising enough to be worth re-asking, because on modest hardware indexing a single block — or the database compaction behind it — can block the query loop past the timeout, and one such blip is not a sync regression.
 
-The check opens a TCP connection to Electrs's own Electrum RPC on `localhost:50001` (via `bash /dev/tcp`) and calls `server.banner`, treating only a real JSON-RPC `result` as synced. Confirmation must be positive: while the index is building Electrs can reply `{"code": -32603, "message": "unavailable index"}`, but far more often it does not reply at all within the 10-second read timeout, because its sync loop indexes an entire batch before servicing any RPC and only answers between batches. Reading silence as success would report "Fully synced" throughout the build. No Bitcoin RPC or Prometheus scraping is performed.
+That distinction drives the message, too. Before the first success it says the index is building and warns that it takes hours. Afterwards it says electrs is busy and this usually clears on its own — because **a built index is never rebuilt**, and telling a fully-synced user their index is rebuilding would send them to reindex a perfectly good one.
 
-Silence is not read as an unbuilt index either. The first success is recorded in `store.json` (`everSynced`), and past it the check retries before concluding — a single blip is not a sync regression, since indexing one block, or the RocksDB compaction behind it, can block the RPC loop past the timeout on modest hardware. A built index is never rebuilt, so past that point the check never claims a rebuild. Messages:
+## Backups and Restore
 
-- `loading` — "Electrs is building its address index. This can take several hours on first run." (before the first success only)
-- `loading` — "Electrs is not responding. It is likely busy indexing; this usually clears on its own." (after it)
-- `success` — "Fully synced"
+The `main` volume is copied **except the index**, which is excluded.
 
-When sync first reaches `success` after install, a **Sync Complete** notification is posted to the StartOS notifications panel (fires once per install).
+So the backup is the configuration and the two flags — kilobytes rather than the tens of gigabytes the index occupies. The trade is explicit: a restored instance **rebuilds its index from scratch**, taking the same hours a fresh install does, and nothing that depends on electrs works until it finishes.
 
-Bitcoin's own sync state is surfaced via the `sync-progress` dependency health check (see [Dependencies](#dependencies)), not this check.
-
----
+Backing the index up would not be much better than rebuilding it: it is large, it is derived entirely from Bitcoin, and a torn copy of a live database is worse than no copy.
 
 ## Limitations and Differences
 
-1. **Mainnet only** — network is fixed to `bitcoin`; testnet/signet not supported
-2. **Fixed Bitcoin connection** — must use the StartOS Bitcoin dependency; cannot connect to external Bitcoin nodes
-3. **Custom-built image** — built from source rather than using pre-built binaries
-4. **Index excluded from backups** — restoring from backup requires full re-indexing
-5. **Limited configuration** — some advanced options (server banner, timeouts) not exposed
-
----
-
-## What Is Changed from Upstream
-
-One carried patch, applied at build time (`patches/`, documented in
-[patches/README.md](patches/README.md)):
-
-- **Client writes are bounded at 60s (`SO_SNDTIMEO`).** Upstream writes Electrum responses with a
-  blocking `write_all` from `handle_events`, which runs inline on the single `serve()` loop
-  alongside `rpc.sync()`, and sets no socket timeouts anywhere. One client that stops draining its
-  receive window therefore halts responses *and* indexing for as long as the kernel retransmits —
-  observed in the field from 19 minutes to 8h39m on two unrelated servers, each ending in a burst
-  of `disconnecting due to failed to send response` followed by a catch-up batch of every block
-  missed. The timeout lets the existing error path drop just that peer.
-
-## What Is Unchanged from Upstream
-
-- Full Electrum protocol v1.4 support
-- RocksDB index storage
-- Fast synchronization performance
-- Low CPU/memory usage after initial sync
-- Efficient mempool tracking
-- All standard Electrum wallet compatibility
-- Query functionality (balance, history, transactions)
-
----
-
-## Contributing
-
-Build and development workflow follow the StartOS packaging guide: <https://docs.start9.com/packaging>. Keep `README.md`, `instructions.md`, and `AGENTS.md` in sync with any change to user-visible behavior or package structure.
+1. **The index is not backed up**, so a restore means rebuilding it — hours.
+2. **Bitcoin must be unpruned**, enforced by a recurring task. Its transaction index is not needed.
+3. **Mainnet only.** The network is pinned in the config.
+4. **Most of upstream's configuration is not exposed** — the database directory, the RPC timeout, the server banner, and the block-download wait are all fixed or absent.
+5. **The Electrum desktop wallet needs a client-side certificate step**; other wallets do not.
+6. **electrs does not reconnect its P2P link.** That is why the whitelisted Bitcoin listener is used rather than the ordinary one.
+7. **The external port is assigned once and never changes** for an existing binding, so it may not be the preferred one.
 
 ---
 
@@ -271,33 +185,27 @@ Build and development workflow follow the StartOS packaging guide: <https://docs
 
 ```yaml
 package_id: electrs
-image: dockerBuild (custom)
-architectures: [x86_64, aarch64]
+image: built from ./Dockerfile
+architectures:
+  - x86_64
+  - aarch64
+subcontainers:
+  - electrs
 volumes:
-  main: /data
-ports:
-  electrum_internal: 50001 (plaintext; on-box only, never reachable off the machine)
-  electrum_ssl: 50002 preferred (StartOS-terminated TLS; the only external address)
+  main: /data # bitcoin's main volume is mounted read-only at /mnt/bitcoind
+file_models:
+  - electrs.toml
+  - store.json # everSynced / syncNotified flags
+startos_managed_env_vars: [] # configuration is written into electrs.toml
 dependencies:
-  - bitcoind (required)
-fixed_config:
-  cookie_file: /mnt/bitcoind/.cookie
-  network: bitcoin
-  electrum_rpc_addr: 0.0.0.0:50001
-runtime_config:
-  daemon_rpc_addr: <bitcoind RPC over the LXC bridge>
-  daemon_p2p_addr: <bitcoind whitelisted P2P (peer-local) over the LXC bridge>
-startos_managed_config:
-  - log_filters
-  - index_batch_size
-  - index_lookup_limit
+  - bitcoind # required, kind: running, checks: bitcoind + sync-progress
+interfaces:
+  main: { type: api, port: 50001 } # TLS-terminated by StartOS; plaintext is bridge-only
 actions:
-  - config (enabled, any)
+  - config
+tasks:
+  - { action: 'bitcoind:autoconfig', severity: critical } # on Bitcoin's page, recurring
 health_checks:
-  - electrs_daemon: port 50001 listening, with cookie-aware waiting state
-  - sync: probes electrs Electrum RPC on localhost:50001 for `unavailable index`
-dependency_health_checks:
-  - bitcoind: [bitcoind, sync-progress]
-backup_volumes:
-  - main (excludes /db)
+  - electrs # displayed "Electrum Server"; binds before it connects to Bitcoin
+  - sync # displayed "Sync Progress"; positive confirmation only
 ```

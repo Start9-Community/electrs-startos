@@ -41,6 +41,10 @@ export type LogFilters = keyof typeof logFilters
  * permissions: bitcoind may evict the connection to seat another peer, or cut
  * it off under `maxuploadtarget`. electrs does not reconnect p2p; it exits.
  * `peer-local` is whitelisted (noban + download), so neither applies.
+ *
+ * Always resolve through getBridgeAddress rather than rebuilding an address
+ * from `net.assignedPort`/`assignedSslPort`: which of those is populated is a
+ * property of how bitcoind bound the port, not something to infer here.
  */
 export const bitcoindBridge = async (effects: T.Effects) => {
   const rpc = await sdk.host
