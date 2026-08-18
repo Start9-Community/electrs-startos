@@ -16,7 +16,7 @@ submodule is bumped past it. Tracked upstream at
 [romanz/electrs#1326](https://github.com/romanz/electrs/issues/1326), filed with the diagnosis
 below and this patch's approach; [#745](https://github.com/romanz/electrs/issues/745) is the same
 defect reported in 2022. Neither `v0.11.1` (the current pin) nor `master` sets a timeout as of
-2026-08-07; there is no upstream tag newer than `v0.11.1`. `TODO.md` lists every file a retirement
+2026-08-07; there is no upstream tag newer than `v0.11.1`. Issue #85 lists every file a retirement
 has to touch.
 
 electrs writes Electrum responses from `handle_events`, which runs inline on the single `serve()`
