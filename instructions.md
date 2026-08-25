@@ -30,7 +30,7 @@ Once that first **Fully synced** appears, the index is built and is never rebuil
 
 Copy an address from the **Interfaces** page into your wallet's server settings. It is shown as an `ssl://` URL, and the host and port in it are what your wallet needs — **take the port from that address rather than assuming one**, since StartOS assigns it and it is not always the same number on every server.
 
-Only the encrypted endpoint is reachable from off this server — there is no plaintext port on any address — so your wallet's SSL option has to be on, and it has to be told to trust the certificate StartOS serves. Both steps, and where the settings live in each wallet, are in the [Start9 guide to connecting a wallet](https://docs.start9.com/bitcoin-guides/connecting-wallets). The Electrum desktop wallet needs a file placed by hand and is covered there too.
+Only the encrypted endpoint is reachable from off this server, so your wallet's SSL option has to be on, and it has to be told to trust the certificate StartOS serves. The one exception is a Tor address you add with its **SSL** toggle turned off: that address alone is plain TCP, so turn SSL **off** in your wallet when you connect over it. Both steps, and where the settings live in each wallet, are in the [Start9 guide to connecting a wallet](https://docs.start9.com/bitcoin-guides/connecting-wallets). The Electrum desktop wallet needs a file placed by hand and is covered there too.
 
 Once connected, Electrs serves all standard Electrum protocol queries: balances, history, transaction lookups, mempool tracking.
 
