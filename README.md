@@ -12,7 +12,7 @@
 [electrs](https://github.com/romanz/electrs/) is an Electrum server: it builds an address index over your own Bitcoin node so wallets can query their history without asking anyone else. This package wires it to that node over the internal bridge, serves it over TLS, and reports the one thing upstream cannot — how far through its index it has got.
 
 - **Upstream repo:** <https://github.com/romanz/electrs/>
-- **Wrapper repo:** <https://github.com/Start9-Community/electrs-startos>
+- **Wrapper repo:** <https://github.com/Start9Labs/electrs-startos>
 
 ---
 

@@ -5,7 +5,7 @@ export const manifest = setupManifest({
   id: 'electrs',
   title: 'Electrs',
   license: 'MIT',
-  packageRepo: 'https://github.com/Start9-Community/electrs-startos',
+  packageRepo: 'https://github.com/Start9Labs/electrs-startos',
   upstreamRepo: 'https://github.com/romanz/electrs/',
   marketingUrl: 'https://github.com/romanz/electrs/',
   donationUrl: null,
