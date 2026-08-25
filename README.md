@@ -101,7 +101,7 @@ One interface, and the difference between its two ports is the thing to understa
 | -------------- | ------ | ---- | ------------- | ---------------------------------------- |
 | Electrum (SSL) | `main` | api  | 50001         | The Electrum protocol endpoint, over SSL |
 
-electrs listens **unencrypted** on 50001 inside the container, and StartOS terminates TLS in front of it. **TLS is the only way in from off the box** — LAN, `.local`, domains and Tor alike — which is what makes the name accurate.
+electrs listens **unencrypted** on 50001 inside the container, and StartOS terminates TLS in front of it. **TLS is the only way in over LAN, `.local` and domains**, which is what makes the name accurate. Tor is the one place a plaintext address is reachable: the Tor service points an onion at whichever bridge address its SSL toggle selects, so an onion added with that toggle off carries plain TCP.
 
 A plaintext external port is allocated too, but it is reachable only at the bridge address, by the host and by other services, source-filtered to that subnet. No LAN or WAN gateway gets a forward for it. That is the address dependents such as Mempool, Specter and Canary resolve, and it is what replaced the retired `.startos` DNS name.
 
