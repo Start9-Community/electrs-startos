@@ -95,6 +95,8 @@ One, and it is required.
 
 **The service also restarts when Bitcoin's cookie changes**, watched directly on the mounted file. An absent cookie means Bitcoin is down, and is deliberately not treated as a change.
 
+**That cookie watch is what carries a pruning change through.** Whether Bitcoin is pruned is read once, at connect, and never re-read — every batch after that takes one branch or the other with no per-batch check. Toggling pruning restarts Bitcoin, which writes a fresh cookie, which restarts electrs, which reads it again. The RPC endpoint is the same either way: pruned, Bitcoin moves to loopback and the proxy takes the port electrs is already pointed at.
+
 ## Network Access and Interfaces
 
 One interface, and the difference between its two ports is the thing to understand.
