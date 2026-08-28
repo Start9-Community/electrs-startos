@@ -51,3 +51,44 @@ pass with zero bytes and returned `WouldBlock`. Total 9.1s for a 3s timeout, so 
 minutes at 60s. That is the ceiling the patch buys against the 19m–8h39m it replaces, not a 60s one.
 The same harness confirms the other half: a peer draining slowly but steadily accepted 64 MB over
 28s without the timeout ever firing.
+
+## 0002 — route blocks below bitcoind's prune height to RPC
+
+**Retire when:** upstream supports pruned nodes and the submodule is bumped past it. Authored by
+[paulscode](https://github.com/paulscode/electrs-pruned), whose repo carries the measurements and
+the design rationale; upstream refuses to start against a pruned node, requested since 2022 in
+[romanz/electrs#673](https://github.com/romanz/electrs/issues/673).
+
+Deleting upstream's `bail!("electrs requires non-pruned bitcoind node")` on its own makes things
+worse, not better. bitcoind answers a `getdata` for a block it has pruned with **silence** — no
+block, no `notfound`, no disconnect — and `Connection::for_blocks` consumes replies positionally on
+an untimed blocking `recv`. A batch entirely below the prune height hangs forever; one straddling it
+fails with a misleading `got unexpected block` as replies shift out of position. There is no error
+to detect, so there is no fallback to trigger: the routing has to be decided before asking.
+
+`getblockchaininfo.pruneheight` decides it exactly — bitcoind serves every block at or above it and
+none below. `for_blocks` walks a batch as maximal runs of same-availability blocks, sending retained
+runs down the existing single-`getdata` p2p path and pruned runs to `getblock <hash> 0`, the
+verbosity `btc-rpc-proxy` intercepts and satisfies from peers. Runs rather than a partition, so each
+keeps streaming in the caller's order without buffering the batch.
+
+p2p stays because it has to: a peer fetch costs ~162 ms on clearnet and ~2118 ms over Tor, flat in
+block size because it is round-trip-bound, so a full chain over RPC alone is ~40 hours on clearnet
+and ~22 days over Tor. RPC is for the blocks bitcoind cannot serve, not a replacement for the ones
+it can.
+
+Archival nodes take an early return in `for_blocks_with` and are byte-for-byte unchanged.
+
+## 0003 — retry pruned-block RPCs, with separate budgets per caller
+
+**Retire when:** 0002 does, since it only guards that path.
+
+A pruned node's block source is a separate process — `btc-rpc-proxy`, which restarts whenever
+bitcoind updates — and individual peer fetches fail transiently. Either took indexing down, because
+the error propagates out of `Index::sync` and ends the process. Retries use exponential backoff (1s
+doubling to 30s), waiting in short slices so the exit flag is still observed promptly.
+
+The two budgets are load-bearing. `handle_events` and `rpc.sync()` share one thread, so a query that
+waits freezes indexing and every other client with it: an earlier single 300s budget meant one query
+against a downed proxy froze the server for five minutes. Indexing keeps 300s, where stalling beats
+dying; serving gets 10s, where a prompt error the wallet can retry beats a freeze.

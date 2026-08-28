@@ -87,9 +87,11 @@ One, and it is required.
 
 **Requiring Bitcoin's own sync check is deliberate.** While Bitcoin is still doing its initial download, electrs reports its dependency as unsatisfied rather than running a duplicate poll of its own — the state shows in one place instead of two.
 
-**Bitcoin must not be pruned**, and a recurring task enforces it: electrs needs an archival node. It does **not** need Bitcoin's transaction index, unlike some other Electrum servers.
+**Bitcoin may be pruned**, and nothing asks otherwise. electrs does not need Bitcoin's transaction index either, unlike some other Electrum servers. The dependency's version floor is the revision whose bundled `btc-rpc-proxy` answers `getrawtransaction` for a pruned block, which is what `blockchain.transaction.get` needs.
 
 **Two addresses are resolved, and the P2P one is not the obvious host.** It resolves Bitcoin's _whitelisted_ peer listener, not the ordinary one. electrs fetches whole blocks over P2P — for the index, and again for any history query on a scripthash nothing has subscribed to — and on the ordinary listener that traffic earns no permissions: Bitcoin may evict the connection to seat another peer, or cut it off under its upload limit. **electrs does not reconnect its P2P link; it exits.** The whitelisted listener is exempt from both.
+
+**Blocks below Bitcoin's prune height go over RPC instead**, where the proxy Bitcoin runs in front of a pruned node fetches them from the peer-to-peer network. The split is decided per block from `pruneheight` before anything is asked for, because there is no error to fall back from: Bitcoin answers a P2P request for a block it has pruned with silence, and the reply loop waits on it forever. A batch is walked as runs of same-availability blocks, so each run keeps streaming in the order asked. Carried as a patch — see [`patches/README.md`](patches/README.md).
 
 **The service also restarts when Bitcoin's cookie changes**, watched directly on the mounted file. An absent cookie means Bitcoin is down, and is deliberately not treated as a change.
 
@@ -136,13 +138,7 @@ Sets the log level and two indexing limits.
 
 ## Tasks
 
-One, and it appears on **Bitcoin's** page rather than this one.
-
-| Task                     | Severity   | Raised when       | Cleared when                   |
-| ------------------------ | ---------- | ----------------- | ------------------------------ |
-| Bitcoin's Auto-Configure | `critical` | Bitcoin is pruned | Pruning is disabled on Bitcoin |
-
-It is declared **recurring**, so re-enabling pruning brings it back. The user sees it on Bitcoin's page with nothing there explaining that electrs asked for it.
+None.
 
 ## Health Checks
 
@@ -172,7 +168,7 @@ Backing the index up would not be much better than rebuilding it: it is large, i
 ## Limitations and Differences
 
 1. **The index is not backed up**, so a restore means rebuilding it — hours.
-2. **Bitcoin must be unpruned**, enforced by a recurring task. Its transaction index is not needed.
+2. **A first index build against an already-pruned Bitcoin is slow.** Every block below the prune height arrives over the network one at a time — around 160 ms each on clearnet, ten times that over Tor — so a build measured in hours against an archival node runs to well over a day. A node still holding its blocks is unaffected.
 3. **Mainnet only.** The network is pinned in the config.
 4. **Most of upstream's configuration is not exposed** — the database directory, the RPC timeout, the server banner, and the block-download wait are all fixed or absent.
 5. **The Electrum desktop wallet needs a client-side certificate step**; other wallets do not.
@@ -203,8 +199,7 @@ interfaces:
   main: { type: api, port: 50001 } # TLS-terminated by StartOS; plaintext is bridge-only
 actions:
   - config
-tasks:
-  - { action: 'bitcoind:autoconfig', severity: critical } # on Bitcoin's page, recurring
+tasks: [] # none
 health_checks:
   - electrs # displayed "Electrum Server"; binds before it connects to Bitcoin
   - sync # displayed "Sync Progress"; positive confirmation only

@@ -1,0 +1,195 @@
+From 5676a66d6a2c60f1ed1a7323902e67d955dd74bb Mon Sep 17 00:00:00 2001
+From: Paul Lamb <paul@paulscode.com>
+Date: Sat, 22 Aug 2026 19:24:32 -0500
+Subject: [PATCH 1/6] daemon: route blocks below bitcoind's prune height to RPC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Upstream refuses to start against a pruned node. Removing that guard alone does
+not help: bitcoind answers a getdata for a pruned block with silence — no
+block, no notfound, no disconnect — and Connection::for_blocks consumes replies
+positionally on an untimed blocking recv, so electrs hangs forever on the first
+batch. A batch straddling the prune height is worse: replies shift out of
+position and it dies with 'got unexpected block'.
+
+So there is no error to detect and no fallback to trigger. The routing has to
+be decided before asking, and getblockchaininfo.pruneheight decides it exactly:
+bitcoind serves every block at or above it and none below.
+
+for_blocks now walks the batch as maximal runs of same-availability blocks,
+sending retained runs down the existing single-getdata p2p path and pruned runs
+to getblock <hash> 0 — the verbosity btc-rpc-proxy intercepts and satisfies
+from peers. Runs rather than a partition so each keeps streaming in the
+caller's order without buffering the batch.
+
+Archival nodes take an early return and are byte-for-byte unchanged.
+
+Verified on a two-node regtest harness (archival peer + pruned node + proxy):
+electrs indexes all 800 blocks including the 250 bitcoind has pruned, and
+serves block.header, transaction.get, transaction.get_merkle,
+transaction.id_from_pos, scripthash.get_history and scripthash.get_balance
+correctly at pruned heights. transaction.get verbose=true still fails — its
+second leg is getrawtransaction, which the proxy does not intercept.
+---
+ src/daemon.rs | 119 ++++++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 115 insertions(+), 4 deletions(-)
+
+diff --git a/src/daemon.rs b/src/daemon.rs
+index 40df169..f142d4b 100644
+--- a/src/daemon.rs
++++ b/src/daemon.rs
+@@ -102,6 +102,13 @@ fn rpc_connect(config: &Config) -> Result<Client> {
+ pub struct Daemon {
+     p2p: Mutex<Connection>,
+     rpc: Client,
++    /// Whether bitcoind is pruning. Fixed for the life of the connection: a
++    /// node cannot start pruning without a restart, and a restart drops the p2p
++    /// connection, which takes electrs down with it.
++    ///
++    /// When false, every block path below is byte-for-byte the upstream one and
++    /// costs nothing extra. All the pruning machinery hangs off this flag.
++    pruned: bool,
+ }
+ 
+ impl Daemon {
+@@ -136,15 +143,29 @@ impl Daemon {
+         }
+         let info = rpc.get_blockchain_info()?;
+         if info.pruned {
+-            bail!("electrs requires non-pruned bitcoind node");
++            // Upstream refuses here. We accept, because `for_blocks` routes
++            // blocks bitcoind no longer holds to `getblock <hash> 0` instead of
++            // p2p. That only works if something can actually answer for them —
++            // on StartOS the RPC port is btc-rpc-proxy whenever bitcoind is
++            // pruned, and it fetches missing blocks from peers. Against a bare
++            // pruned bitcoind those reads fail and indexing stops with a clear
++            // error, which is still better than upstream's behaviour without
++            // the guard: a silent, permanent hang (bitcoind answers a getdata
++            // for a pruned block with nothing at all — no block, no notfound).
++            warn!(
++                "bitcoind is pruned (pruneheight={}); blocks below that height \
++                 will be fetched over RPC rather than p2p",
++                info.prune_height.unwrap_or(0)
++            );
+         }
++        let pruned = info.pruned;
+ 
+         let p2p = Mutex::new(Connection::connect(
+             config.daemon_p2p_addr,
+             metrics,
+             config.magic,
+         )?);
+-        Ok(Self { p2p, rpc })
++        Ok(Self { p2p, rpc, pruned })
+     }
+ 
+     pub(crate) fn estimate_fee(&self, nblocks: u16) -> Result<Option<Amount>> {
+@@ -292,12 +313,102 @@ impl Daemon {
+         self.p2p.lock().get_new_headers(chain)
+     }
+ 
+-    pub(crate) fn for_blocks<B, F>(&self, blockhashes: B, func: F) -> Result<()>
++    pub(crate) fn for_blocks<B, F>(&self, blockhashes: B, mut func: F) -> Result<()>
+     where
+         B: IntoIterator<Item = BlockHash>,
+         F: FnMut(BlockHash, SerBlock),
+     {
+-        self.p2p.lock().for_blocks(blockhashes, func)
++        if !self.pruned {
++            return self.p2p.lock().for_blocks(blockhashes, func);
++        }
++
++        // On a pruned node the p2p path cannot be used blindly. bitcoind
++        // answers a `getdata` for a block it has pruned with *silence* — no
++        // block, no `notfound`, no disconnect (measured; see DISCOVERY.md §4.3)
++        // — and `Connection::for_blocks` consumes replies positionally with an
++        // untimed blocking recv. So a batch that is entirely below the prune
++        // height hangs forever, and one that straddles it fails with a
++        // misleading "got unexpected block" as replies shift out of position.
++        //
++        // There is therefore nothing to detect and fall back from. The split
++        // has to be decided *before* asking, which `pruneheight` lets us do
++        // exactly: bitcoind serves every block at or above it and none below.
++        let blockhashes: Vec<BlockHash> = blockhashes.into_iter().collect();
++        if blockhashes.is_empty() {
++            return Ok(());
++        }
++        let prune_height = self.prune_height()?;
++        let heights = self.block_heights(&blockhashes)?;
++
++        // Walk the batch as maximal runs of same-availability blocks rather
++        // than partitioning it. Heights arrive in ascending order in the common
++        // case, so this is usually one or two runs — and it lets each run keep
++        // streaming in the caller's order without buffering the whole batch.
++        let mut start = 0;
++        while start < blockhashes.len() {
++            let local = heights[start] >= prune_height;
++            let mut end = start + 1;
++            while end < blockhashes.len() && (heights[end] >= prune_height) == local {
++                end += 1;
++            }
++            let run = &blockhashes[start..end];
++            if local {
++                self.p2p.lock().for_blocks(run.iter().copied(), &mut func)?;
++            } else {
++                for &hash in run {
++                    let block = self.get_block_raw_rpc(hash).with_context(|| {
++                        format!(
++                            "failed to fetch pruned block {} over RPC; an RPC provider that \
++                             serves pruned blocks (e.g. btc-rpc-proxy) is required",
++                            hash
++                        )
++                    })?;
++                    func(hash, block);
++                }
++            }
++            start = end;
++        }
++        Ok(())
++    }
++
++    /// Lowest height bitcoind still stores block data for. Re-read per batch
++    /// rather than cached: it advances as bitcoind prunes, and reading a stale
++    /// value low would route a since-pruned block to p2p and hang.
++    fn prune_height(&self) -> Result<usize> {
++        let info = self
++            .rpc
++            .get_blockchain_info()
++            .context("failed to get prune height")?;
++        Ok(info.prune_height.unwrap_or(0) as usize)
++    }
++
++    /// Heights of the given blocks, in the order asked. One batched
++    /// `getblockheader` — headers survive pruning, so this answers for every
++    /// block regardless of whether its data is still on disk.
++    fn block_heights(&self, blockhashes: &[BlockHash]) -> Result<Vec<usize>> {
++        let results = batch_request(self.rpc.get_jsonrpc_client(), "getblockheader", blockhashes)?;
++        results
++            .into_iter()
++            .zip(blockhashes)
++            .map(|(r, hash)| {
++                let header = r
++                    .ok_or_else(|| anyhow!("no getblockheader response for {}", hash))?
++                    .result::<json::GetBlockHeaderResult>()
++                    .with_context(|| format!("failed to get header for {}", hash))?;
++                Ok(header.height)
++            })
++            .collect()
++    }
++
++    /// A single block as consensus-serialized bytes, over RPC rather than p2p.
++    /// `getblock <hash> 0` is the verbosity btc-rpc-proxy intercepts and will
++    /// satisfy from peers when bitcoind has pruned the block.
++    fn get_block_raw_rpc(&self, hash: BlockHash) -> Result<SerBlock> {
++        let hex: String = self
++            .rpc
++            .call("getblock", &[json!(hash), json!(0)])
++            .context("getblock failed")?;
++        Vec::from_hex(&hex).context("bitcoind returned a non-hex block")
+     }
+ 
+     pub(crate) fn new_block_notification(&self) -> Receiver<()> {
+-- 
+2.43.0
+

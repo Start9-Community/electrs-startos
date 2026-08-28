@@ -1,6 +1,8 @@
 # Electrs
 
-Electrs needs a fully-synced Bitcoin archival node to do anything useful. Install **Bitcoin** first and let it finish its initial block download before expecting Electrs to come online — until then, Electrs will sit in a waiting state.
+Electrs needs a fully-synced Bitcoin node to do anything useful. Install **Bitcoin** first and let it finish its initial block download before expecting Electrs to come online — until then, Electrs will sit in a waiting state.
+
+Bitcoin may be pruned. Blocks it no longer keeps are fetched from the Bitcoin network as Electrs needs them, so no setting has to change. Building the index for the first time against a node that has already pruned its history takes well over a day, though — considerably longer if Bitcoin reaches the network only over Tor.
 
 ## Documentation
 

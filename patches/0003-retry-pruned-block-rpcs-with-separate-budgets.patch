@@ -1,0 +1,239 @@
+From b7cb051c8ae12ad39cae3fe90c58fe83be0784ee Mon Sep 17 00:00:00 2001
+From: Paul Lamb <paul@paulscode.com>
+Date: Mon, 24 Aug 2026 07:53:04 -0500
+Subject: [PATCH 2/6] daemon: retry pruned-block RPCs, with separate budgets
+ per caller
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On a pruned node the block source is a separate process that restarts when its
+own dependency updates, and individual peer fetches fail transiently — a pooled
+peer connection going stale is enough. Any of that took indexing down, because
+the error propagates out of Index::sync and ends the process. Measured: with
+the archival peer stopped so no peer holds the pruned blocks, electrs exited.
+
+Retries with exponential backoff (1s doubling to 30s), waiting in short slices
+so the exit flag is still observed within a fraction of a second.
+
+The budget differs by caller, and that distinction is load-bearing rather than
+cosmetic. handle_events and rpc.sync() share one thread, so a query that waits
+freezes indexing and every other client with it. An early version used one
+300s budget everywhere and a single query against a downed proxy froze the
+whole server for five minutes. Indexing keeps 300s, where stalling beats dying;
+serving gets 10s, where a prompt error the wallet can retry beats a freeze.
+for_blocks_indexing() selects the patient one; only index.rs calls it.
+
+Archival nodes never reach any of this — for_blocks_with returns early on
+!pruned before the first retry-wrapped call.
+
+Verified on the regtest harness: with the peer gone, electrs stays up, logs its
+retries, and completes the index once the peer returns *without being
+restarted*. Gap repair, reorg, interrupted-resume and proxy-outage scenarios
+all still pass, as do the Electrum query checks at pruned heights.
+---
+ src/daemon.rs | 137 ++++++++++++++++++++++++++++++++++++++++++++++----
+ src/index.rs  |   2 +-
+ 2 files changed, 127 insertions(+), 12 deletions(-)
+
+diff --git a/src/daemon.rs b/src/daemon.rs
+index f142d4b..192c0e2 100644
+--- a/src/daemon.rs
++++ b/src/daemon.rs
+@@ -12,6 +12,7 @@ use serde_json::{json, value::RawValue, Value};
+ use std::fs::File;
+ use std::io::Read;
+ use std::path::Path;
++use std::time::{Duration, Instant};
+ 
+ use crate::{
+     chain::{Chain, NewHeader},
+@@ -109,8 +110,32 @@ pub struct Daemon {
+     /// When false, every block path below is byte-for-byte the upstream one and
+     /// costs nothing extra. All the pruning machinery hangs off this flag.
+     pruned: bool,
++    /// Used only to keep the retry backoff interruptible, so a SIGTERM arriving
++    /// mid-wait is still honoured promptly.
++    exit_flag: ExitFlag,
+ }
+ 
++// How long to keep retrying a block-source RPC before giving up.
++//
++// A pruned node's block source is a separate process (btc-rpc-proxy) that
++// restarts whenever its own dependency updates, and individual peer fetches
++// fail transiently — a pooled peer connection going stale is enough. Without
++// retries any of that takes indexing down, because the error propagates out of
++// `Index::sync` and ends the process.
++//
++// The two budgets differ because the caller's tolerance does.
++
++/// Indexing can afford to wait: stalling is strictly better than dying, because
++/// dying ends the process. Sized to ride out a dependency restart without also
++/// riding out a real misconfiguration — past this, failing loudly is more useful
++/// than stalling silently, and the index on disk is still valid to resume from.
++const RETRY_BUDGET_INDEXING: Duration = Duration::from_secs(300);
++/// Serving a client cannot. `handle_events` and `rpc.sync()` share one thread
++/// (`server.rs`), so a query that waits also freezes indexing and every other
++/// client. A prompt error the wallet can retry beats a five-minute freeze.
++const RETRY_BUDGET_QUERY: Duration = Duration::from_secs(10);
++const RPC_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
++
+ impl Daemon {
+     pub(crate) fn connect(
+         config: &Config,
+@@ -165,7 +190,70 @@ impl Daemon {
+             metrics,
+             config.magic,
+         )?);
+-        Ok(Self { p2p, rpc, pruned })
++        Ok(Self {
++            p2p,
++            rpc,
++            pruned,
++            exit_flag: exit_flag.clone(),
++        })
++    }
++
++    /// Run an RPC that the pruned-block path depends on, retrying transient
++    /// failures with exponential backoff.
++    ///
++    /// Only used on the pruned path. Archival nodes never reach it, so upstream
++    /// error handling is unchanged for them.
++    fn retry_rpc<T>(
++        &self,
++        what: &str,
++        budget: Duration,
++        mut f: impl FnMut() -> Result<T>,
++    ) -> Result<T> {
++        let deadline = Instant::now() + budget;
++        let mut delay = Duration::from_secs(1);
++        let mut attempt = 0usize;
++        loop {
++            match f() {
++                Ok(value) => {
++                    if attempt > 0 {
++                        info!("{} succeeded after {} retries", what, attempt);
++                    }
++                    return Ok(value);
++                }
++                Err(err) => {
++                    if Instant::now() >= deadline {
++                        return Err(err).with_context(|| {
++                            format!(
++                                "{} still failing after {}s of retries",
++                                what,
++                                budget.as_secs()
++                            )
++                        });
++                    }
++                    attempt += 1;
++                    warn!(
++                        "{} failed ({:#}); retrying in {}s",
++                        what,
++                        err,
++                        delay.as_secs()
++                    );
++                    // Wait in slices rather than one long sleep, so the exit
++                    // flag is observed within a fraction of a second.
++                    let until = Instant::now() + delay;
++                    loop {
++                        self.exit_flag
++                            .poll()
++                            .context("interrupted while retrying bitcoind RPC")?;
++                        let now = Instant::now();
++                        if now >= until {
++                            break;
++                        }
++                        std::thread::sleep(std::cmp::min(Duration::from_millis(250), until - now));
++                    }
++                    delay = std::cmp::min(delay * 2, RPC_RETRY_MAX_DELAY);
++                }
++            }
++        }
+     }
+ 
+     pub(crate) fn estimate_fee(&self, nblocks: u16) -> Result<Option<Amount>> {
+@@ -313,7 +401,27 @@ impl Daemon {
+         self.p2p.lock().get_new_headers(chain)
+     }
+ 
+-    pub(crate) fn for_blocks<B, F>(&self, blockhashes: B, mut func: F) -> Result<()>
++    /// Blocks for serving a client. Retries only briefly — see
++    /// `RETRY_BUDGET_QUERY`.
++    pub(crate) fn for_blocks<B, F>(&self, blockhashes: B, func: F) -> Result<()>
++    where
++        B: IntoIterator<Item = BlockHash>,
++        F: FnMut(BlockHash, SerBlock),
++    {
++        self.for_blocks_with(blockhashes, func, RETRY_BUDGET_QUERY)
++    }
++
++    /// Blocks for building the index. Retries patiently — see
++    /// `RETRY_BUDGET_INDEXING`.
++    pub(crate) fn for_blocks_indexing<B, F>(&self, blockhashes: B, func: F) -> Result<()>
++    where
++        B: IntoIterator<Item = BlockHash>,
++        F: FnMut(BlockHash, SerBlock),
++    {
++        self.for_blocks_with(blockhashes, func, RETRY_BUDGET_INDEXING)
++    }
++
++    fn for_blocks_with<B, F>(&self, blockhashes: B, mut func: F, budget: Duration) -> Result<()>
+     where
+         B: IntoIterator<Item = BlockHash>,
+         F: FnMut(BlockHash, SerBlock),
+@@ -337,8 +445,11 @@ impl Daemon {
+         if blockhashes.is_empty() {
+             return Ok(());
+         }
+-        let prune_height = self.prune_height()?;
+-        let heights = self.block_heights(&blockhashes)?;
++        let prune_height =
++            self.retry_rpc("reading prune height", budget, || self.prune_height())?;
++        let heights = self.retry_rpc("resolving block heights", budget, || {
++            self.block_heights(&blockhashes)
++        })?;
+ 
+         // Walk the batch as maximal runs of same-availability blocks rather
+         // than partitioning it. Heights arrive in ascending order in the common
+@@ -356,13 +467,17 @@ impl Daemon {
+                 self.p2p.lock().for_blocks(run.iter().copied(), &mut func)?;
+             } else {
+                 for &hash in run {
+-                    let block = self.get_block_raw_rpc(hash).with_context(|| {
+-                        format!(
+-                            "failed to fetch pruned block {} over RPC; an RPC provider that \
+-                             serves pruned blocks (e.g. btc-rpc-proxy) is required",
+-                            hash
+-                        )
+-                    })?;
++                    let block = self
++                        .retry_rpc(&format!("fetching pruned block {}", hash), budget, || {
++                            self.get_block_raw_rpc(hash)
++                        })
++                        .with_context(|| {
++                            format!(
++                                "failed to fetch pruned block {} over RPC; an RPC provider that \
++                                 serves pruned blocks (e.g. btc-rpc-proxy) is required",
++                                hash
++                            )
++                        })?;
+                     func(hash, block);
+                 }
+             }
+diff --git a/src/index.rs b/src/index.rs
+index 5c30d9c..efbe377 100644
+--- a/src/index.rs
++++ b/src/index.rs
+@@ -242,7 +242,7 @@ impl Index {
+ 
+         let mut batch = WriteBatch::default();
+ 
+-        daemon.for_blocks(blockhashes, |blockhash, block| {
++        daemon.for_blocks_indexing(blockhashes, |blockhash, block| {
+             let height = heights.next().expect("unexpected block");
+             self.stats.observe_duration("block", || {
+                 index_single_block(blockhash, block, height, &mut batch);
+-- 
+2.43.0
+

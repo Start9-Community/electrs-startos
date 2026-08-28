@@ -1,23 +1,29 @@
 import { VersionInfo } from '@start9labs/start-sdk'
+import { sdk } from '../sdk'
 
 export const current = VersionInfo.of({
-  version: '0.11.1:20',
+  version: '0.11.1:21',
   releaseNotes: {
-    en_US: `The instructions now link to a full wallet-connection guide.
+    en_US: `Electrs now runs against a pruned Bitcoin node.
 
-Pointing a wallet at your own Electrum server takes the same few steps whatever wallet you use — turning SSL on, taking the port from the address rather than assuming one, and getting the wallet to trust the certificate your server issues. Those are now written up in one place in the Start9 Bitcoin guides, together with the settings path for each wallet and the certificate file the Electrum desktop wallet needs placed by hand. The Instructions tab links there instead of carrying a partial copy. Nothing about Electrs itself has changed.`,
-    es_ES: `Las instrucciones ahora enlazan con una guía completa para conectar carteras.
+The task asking you to turn pruning off is gone. Blocks your node no longer keeps are fetched from the Bitcoin network as the index needs them. Building the index for the first time on a node that has already pruned its history is slow — expect well over a day, and considerably longer if Bitcoin reaches peers only over Tor. An archival node indexes exactly as fast as before.`,
+    es_ES: `Electrs ya funciona con un nodo Bitcoin podado.
 
-Apuntar una cartera a tu propio servidor Electrum requiere los mismos pasos sea cual sea la cartera: activar SSL, tomar el puerto de la dirección en lugar de suponer uno, y conseguir que la cartera confíe en el certificado que emite tu servidor. Todo eso está ahora recogido en un solo sitio, en las guías de Bitcoin de Start9, junto con la ruta de ajustes de cada cartera y el archivo de certificado que la cartera de escritorio Electrum necesita que coloques a mano. La pestaña Instrucciones enlaza allí en lugar de llevar una copia parcial. Nada de Electrs en sí ha cambiado.`,
-    de_DE: `Die Anleitung verweist jetzt auf einen vollständigen Leitfaden zum Verbinden von Wallets.
+La tarea que pedía desactivar la poda ha desaparecido. Los bloques que tu nodo ya no conserva se obtienen de la red Bitcoin a medida que el índice los necesita. Construir el índice por primera vez en un nodo que ya ha podado su historial es lento: cuenta con bastante más de un día, y considerablemente más si Bitcoin solo llega a sus pares por Tor. Un nodo de archivo indexa exactamente igual de rápido que antes.`,
+    de_DE: `Electrs läuft jetzt auch mit einem beschnittenen Bitcoin-Knoten.
 
-Eine Wallet auf den eigenen Electrum-Server zu richten erfordert immer dieselben Schritte, egal welche Wallet: SSL einschalten, den Port aus der Adresse übernehmen statt einen anzunehmen, und die Wallet dazu bringen, dem Zertifikat Ihres Servers zu vertrauen. Das steht jetzt an einer Stelle in den Bitcoin-Leitfäden von Start9 — zusammen mit dem Einstellungspfad jeder Wallet und der Zertifikatsdatei, die die Electrum-Desktop-Wallet von Hand abgelegt braucht. Der Reiter Anleitung verlinkt dorthin, statt eine unvollständige Kopie zu führen. An Electrs selbst ändert sich nichts.`,
-    pl_PL: `Instrukcje odsyłają teraz do pełnego przewodnika po podłączaniu portfeli.
+Die Aufgabe, die zum Abschalten des Beschneidens aufforderte, entfällt. Blöcke, die Ihr Knoten nicht mehr vorhält, werden aus dem Bitcoin-Netzwerk geholt, sobald der Index sie braucht. Den Index zum ersten Mal auf einem Knoten aufzubauen, der seinen Verlauf bereits beschnitten hat, dauert lange — rechnen Sie mit deutlich über einem Tag, und mit erheblich mehr, wenn Bitcoin seine Gegenstellen nur über Tor erreicht. Ein Archivknoten indiziert genauso schnell wie zuvor.`,
+    pl_PL: `Electrs działa teraz z przyciętym węzłem Bitcoin.
 
-Skierowanie portfela na własny serwer Electrum wymaga tych samych kilku kroków niezależnie od portfela: włączenia SSL, wzięcia portu z adresu zamiast zakładania go i sprawienia, by portfel zaufał certyfikatowi wystawianemu przez Twój serwer. Wszystko to jest teraz opisane w jednym miejscu, w przewodnikach Bitcoin od Start9, razem ze ścieżką ustawień dla każdego portfela i plikiem certyfikatu, który trzeba ręcznie umieścić dla portfela Electrum na komputer. Zakładka Instrukcje odsyła tam, zamiast powielać niepełną kopię. W samym Electrs nic się nie zmieniło.`,
-    fr_FR: `Les instructions renvoient désormais vers un guide complet de connexion des portefeuilles.
+Zadanie proszące o wyłączenie przycinania zniknęło. Bloki, których Twój węzeł już nie przechowuje, są pobierane z sieci Bitcoin w miarę jak indeks ich potrzebuje. Pierwsze zbudowanie indeksu na węźle, który już przyciął swoją historię, jest powolne — licz się ze znacznie więcej niż dobą, a przy Bitcoinie łączącym się z siecią wyłącznie przez Tor z czasem dużo dłuższym. Węzeł archiwalny indeksuje dokładnie tak szybko jak wcześniej.`,
+    fr_FR: `Electrs fonctionne désormais avec un nœud Bitcoin élagué.
 
-Pointer un portefeuille vers votre propre serveur Electrum demande les mêmes quelques étapes quel que soit le portefeuille : activer SSL, reprendre le port depuis l'adresse plutôt que d'en supposer un, et amener le portefeuille à faire confiance au certificat émis par votre serveur. Tout cela est maintenant réuni en un seul endroit, dans les guides Bitcoin de Start9, avec le chemin des réglages de chaque portefeuille et le fichier de certificat que le portefeuille de bureau Electrum exige d'être placé à la main. L'onglet Instructions y renvoie au lieu d'en porter une copie partielle. Rien ne change dans Electrs lui-même.`,
+La tâche qui demandait de désactiver l'élagage a disparu. Les blocs que votre nœud ne conserve plus sont récupérés sur le réseau Bitcoin au fur et à mesure que l'index en a besoin. Construire l'index pour la première fois sur un nœud qui a déjà élagué son historique est lent : comptez bien plus d'une journée, et considérablement plus si Bitcoin ne joint ses pairs que par Tor. Un nœud d'archive s'indexe exactement aussi vite qu'avant.`,
   },
-  migrations: {},
+  migrations: {
+    up: async ({ effects }) => {
+      // the pruning task electrs no longer raises
+      await sdk.action.clearTask(effects, 'bitcoind:autoconfig')
+    },
+  },
 })
