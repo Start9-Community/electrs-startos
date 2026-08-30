@@ -4,8 +4,7 @@ Electrs needs a fully-synced Bitcoin archival node to do anything useful. Instal
 
 ## Documentation
 
-- [Connecting a wallet](https://docs.start9.com/bitcoin-guides/connecting-wallets) — the Start9 guide to pointing a wallet at your own Electrum server: the certificate, SSL, Tor, and where the setting lives in each wallet.
-- [Bitcoin wallets](https://docs.start9.com/bitcoin-guides/bitcoin-wallets) — which wallets work with an Electrum server, on which platforms.
+- [Start9 Bitcoin Guides](https://docs.start9.com/bitcoin-guides/) — pointing a wallet at your own Electrum server — certificates, SSL and Tor — which wallets work, and archival versus pruned Bitcoin nodes.
 - [Electrs upstream README](https://github.com/romanz/electrs/blob/master/README.md) — the upstream project's documentation, including configuration reference and protocol notes.
 
 ## What you get on StartOS
